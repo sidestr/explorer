@@ -3,8 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>sidestr explorer</title>
-<meta name="description" content="A read-only explorer for sidestr chains. Give it a mirror; it validates every block in your browser and shows blocks, transactions and addresses.">
+<title>sidestr · explorer</title>
+<meta name="description" content="A read-only explorer for sidestr chains. Point it at a mirror: it validates every block in your browser and shows blocks, transactions and addresses.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f766e'/%3E%3Crect x='7' y='14' width='18' height='4' rx='2' fill='%23fff'/%3E%3Crect x='7' y='21' width='11' height='4' rx='2' fill='%23fff' opacity='.7'/%3E%3C/svg%3E">
 <link rel="canonical" href="https://sidestr.com/explorer/">
 <meta property="og:site_name" content="sidestr">
 <meta property="og:title" content="sidestr explorer">
@@ -19,84 +20,702 @@
 <meta name="twitter:title" content="sidestr explorer">
 <meta name="twitter:description" content="Every block, checked in your browser. Read only, any sidestr chain.">
 <meta name="twitter:image" content="https://sidestr.com/explorer/og.png?v=1">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f766e'/%3E%3Crect x='7' y='14' width='18' height='4' rx='2' fill='%23fff'/%3E%3Crect x='7' y='21' width='11' height='4' rx='2' fill='%23fff' opacity='.7'/%3E%3C/svg%3E">
 <style>
-  :root { color-scheme: light dark; --ac: #0f766e; --mut: #6b7280; --bd: #8884; }
-  body { max-width: 60rem; margin: 1.5rem auto; padding: 0 1rem; font: 15px/1.5 system-ui, sans-serif; }
-  a { color: #0969da; text-decoration: none; } a:hover { text-decoration: underline; }
-  nav { display: flex; gap: 1rem; align-items: baseline; flex-wrap: wrap; margin-bottom: 1rem; font-size: .92em; }
-  nav .brand { font-weight: 700; color: inherit; } nav .brand b { color: var(--ac); }
-  nav form { margin-left: auto; display: flex; gap: .4rem; } nav input { font: inherit; padding: .2rem .5rem; width: 22rem; max-width: 60vw; }
-  h1 { font-size: 1.4rem; letter-spacing: -.3px; margin: .2rem 0 .6rem; } h2 { font-size: 1.05rem; margin: 1.4rem 0 .5rem; }
-  table { border-collapse: collapse; width: 100%; font-size: .92em; } th, td { border-top: 1px solid var(--bd); padding: .35rem .5rem; text-align: left; vertical-align: top; } th { color: var(--mut); font-weight: 600; font-size: .82em; text-transform: uppercase; letter-spacing: .5px; }
-  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
-  code, .mono { font: .9em ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .8rem; margin: .8rem 0; }
-  .card { border: 1px solid var(--bd); border-radius: 10px; padding: .7rem .9rem; } .card .k { color: var(--mut); font-size: .78em; text-transform: uppercase; letter-spacing: .5px; } .card .v { font-size: 1.15em; font-weight: 600; }
-  .ok { color: #1a7f37; } .bad { color: #b91c1c; } .mut { color: var(--mut); }
-  dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; } dt { color: var(--mut); }
-  .note { color: var(--mut); font-size: .9em; }
-  @media (max-width: 640px) { dl { grid-template-columns: 1fr; } nav input { width: 100%; max-width: none; } }
+:root {
+  color-scheme: dark;
+  --bg: #070b0a;
+  --bg2: #0a100f;
+  --panel: rgba(255,255,255,.028);
+  --panel2: rgba(255,255,255,.05);
+  --line: rgba(148,196,184,.12);
+  --line2: rgba(148,196,184,.22);
+  --text: #e7f0ed;
+  --mut: #8fa8a1;
+  --dim: #5c716c;
+  --ac: #2dd4bf;
+  --ac-deep: #0f766e;
+  --ac-glow: rgba(45,212,191,.16);
+  --amber: #f5b04c;
+  --red: #f4726b;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: "Space Grotesk", system-ui, -apple-system, sans-serif;
+  --r: 14px;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.55 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+/* ---------- backdrop ---------- */
+.backdrop { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+.backdrop::before {
+  content: ""; position: absolute; inset: 0;
+  background:
+    radial-gradient(900px 500px at 85% -10%, rgba(15,118,110,.28), transparent 60%),
+    radial-gradient(700px 500px at -10% 30%, rgba(45,212,191,.07), transparent 55%),
+    radial-gradient(1000px 700px at 50% 120%, rgba(15,118,110,.12), transparent 60%);
+}
+.backdrop::after {
+  content: ""; position: absolute; inset: 0; opacity: .5;
+  background-image:
+    linear-gradient(rgba(148,196,184,.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148,196,184,.045) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, #000 30%, transparent 75%);
+}
+::selection { background: rgba(45,212,191,.28); }
+a { color: var(--ac); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 3px; }
+code, .mono { font-family: var(--mono); font-size: .92em; }
+
+/* ---------- top bar ---------- */
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+  padding: .7rem clamp(1rem, 4vw, 2.5rem);
+  background: rgba(7,11,10,.78); backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: .6rem; font-weight: 700; font-size: 1.02rem; letter-spacing: -.01em; color: var(--text); }
+.brand:hover { text-decoration: none; }
+.brand .mark { width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(145deg, #14b8a6, #0f766e); display: grid; place-items: center; box-shadow: 0 0 18px var(--ac-glow); flex: none; }
+.brand .mark svg { display: block; }
+.brand .sep { color: var(--dim); font-weight: 400; }
+.brand .sub { color: var(--ac); }
+.search { flex: 1 1 18rem; max-width: 34rem; position: relative; margin-inline: auto; }
+.search input {
+  width: 100%; font: .9rem var(--mono); color: var(--text);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: .5rem .9rem .5rem 2.3rem; outline: none; transition: border-color .2s, box-shadow .2s;
+}
+.search input:focus { border-color: var(--ac-deep); box-shadow: 0 0 0 3px var(--ac-glow); }
+.search input::placeholder { color: var(--dim); }
+.search .icon { position: absolute; left: .8rem; top: 50%; transform: translateY(-50%); color: var(--dim); pointer-events: none; }
+.status { display: flex; align-items: center; gap: .5rem; font: .78rem var(--mono); color: var(--mut); white-space: nowrap; }
+.pill {
+  display: inline-flex; align-items: center; gap: .4rem;
+  border: 1px solid var(--line); border-radius: 99px; padding: .28rem .75rem;
+  background: var(--panel);
+}
+.pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
+.pill.syncing .dot { background: var(--amber); animation: pulse 1s ease-in-out infinite; }
+.pill.ok { border-color: rgba(45,212,191,.35); color: var(--ac); }
+.pill.ok .dot { background: var(--ac); box-shadow: 0 0 8px var(--ac); }
+@keyframes pulse { 50% { opacity: .35; } }
+.iconbtn {
+  display: grid; place-items: center; width: 34px; height: 34px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  color: var(--mut); cursor: pointer; transition: all .2s;
+}
+.iconbtn:hover { color: var(--ac); border-color: var(--line2); transform: rotate(40deg); }
+
+/* ---------- layout ---------- */
+.wrap { max-width: 72rem; margin: 0 auto; padding: clamp(1.2rem, 4vw, 2.6rem) clamp(1rem, 4vw, 2.5rem) 5rem; }
+.view { animation: rise .45s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+@media (prefers-reduced-motion: reduce) { .view, .stagger > * { animation: none; } }
+@keyframes fadein { from { opacity: 0; } }
+.stagger > * { animation: rise .5s cubic-bezier(.2,.8,.2,1) both; }
+.stagger > *:nth-child(1) { animation-delay: .03s; } .stagger > *:nth-child(2) { animation-delay: .07s; }
+.stagger > *:nth-child(3) { animation-delay: .11s; } .stagger > *:nth-child(4) { animation-delay: .15s; }
+.stagger > *:nth-child(5) { animation-delay: .19s; } .stagger > *:nth-child(6) { animation-delay: .23s; }
+.stagger > *:nth-child(7) { animation-delay: .27s; } .stagger > *:nth-child(8) { animation-delay: .31s; }
+.stagger > *:nth-child(n+9) { animation-delay: .34s; }
+
+/* ---------- hero ---------- */
+.hero { padding: 1.5rem 0 2rem; }
+.eyebrow { font: .72rem var(--mono); letter-spacing: .22em; text-transform: uppercase; color: var(--ac); display: flex; align-items: center; gap: .6rem; }
+.eyebrow::before { content: ""; width: 26px; height: 1px; background: var(--ac-deep); }
+.hero h1 { font-size: clamp(2rem, 5.4vw, 3.3rem); letter-spacing: -.03em; line-height: 1.05; margin: .55rem 0 .7rem; font-weight: 700; }
+.hero h1 .thin { color: var(--dim); font-weight: 500; }
+.lede { color: var(--mut); max-width: 46rem; margin: 0; font-size: 1.02rem; }
+.chips { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: 1.1rem; }
+.chip {
+  font: .76rem var(--mono); color: var(--mut);
+  border: 1px solid var(--line); background: var(--panel);
+  padding: .32rem .7rem; border-radius: 8px;
+}
+.chip b { color: var(--text); font-weight: 500; }
+.chip a { color: var(--mut); } .chip a:hover { color: var(--ac); }
+
+/* ---------- stats ---------- */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr)); gap: .8rem; margin: 1.4rem 0 2.6rem; }
+.stat {
+  position: relative; overflow: hidden;
+  border: 1px solid var(--line); border-radius: var(--r);
+  background: linear-gradient(160deg, var(--panel2), var(--panel));
+  padding: 1rem 1.1rem 0.95rem;
+  transition: border-color .25s, transform .25s;
+}
+.stat:hover { border-color: var(--line2); transform: translateY(-2px); }
+.stat::after { content: ""; position: absolute; inset: 0 0 auto 0; height: 1px; background: linear-gradient(90deg, transparent, rgba(45,212,191,.4), transparent); opacity: 0; transition: opacity .25s; }
+.stat:hover::after { opacity: 1; }
+.stat .k { font: .68rem var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+.stat .v { font: 600 1.55rem/1.2 var(--sans); letter-spacing: -.02em; margin-top: .3rem; font-variant-numeric: tabular-nums; }
+.stat .v small { font-size: .85rem; color: var(--mut); font-weight: 500; margin-left: .25rem; }
+.stat .s { font: .74rem var(--mono); color: var(--mut); margin-top: .15rem; }
+.stat .s .ok { color: var(--ac); }
+
+/* ---------- validation strip ---------- */
+.valid { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); padding: 1rem 1.2rem; margin-bottom: 2.4rem; }
+.valid .head { display: flex; align-items: center; gap: .6rem; font: .74rem var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--mut); }
+.valid .head .live { margin-left: auto; color: var(--dim); letter-spacing: 0; text-transform: none; }
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .6rem; margin-top: .9rem; }
+.step { display: flex; align-items: center; gap: .6rem; font: .8rem var(--mono); color: var(--dim); padding: .5rem .7rem; border-radius: 9px; background: rgba(255,255,255,.02); border: 1px solid transparent; }
+.step.done { color: var(--text); border-color: var(--line); }
+.step.done .n { background: var(--ac-deep); color: #eafffb; }
+.step .n { width: 20px; height: 20px; flex: none; border-radius: 6px; display: grid; place-items: center; font-size: .68rem; background: var(--panel2); color: var(--dim); transition: all .3s; }
+.step .spin { width: 12px; height: 12px; border: 2px solid var(--line2); border-top-color: var(--ac); border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- section headers ---------- */
+.sect { display: flex; align-items: baseline; gap: .8rem; margin: 2.2rem 0 .9rem; }
+.sect h2 { font-size: 1.06rem; font-weight: 600; letter-spacing: -.01em; margin: 0; }
+.sect .count { font: .75rem var(--mono); color: var(--dim); }
+.sect .more { margin-left: auto; font: .78rem var(--mono); }
+
+/* ---------- table ---------- */
+.card { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); overflow: hidden; }
+table.list { width: 100%; border-collapse: collapse; font-size: .88rem; }
+table.list th {
+  text-align: left; font: .68rem var(--mono); letter-spacing: .13em; text-transform: uppercase;
+  color: var(--dim); font-weight: 500; padding: .65rem .9rem; border-bottom: 1px solid var(--line);
+  background: rgba(255,255,255,.015); white-space: nowrap;
+}
+table.list td { padding: .55rem .9rem; border-bottom: 1px solid rgba(148,196,184,.06); vertical-align: middle; }
+table.list tr:last-child td { border-bottom: 0; }
+table.list tbody tr { transition: background .15s; }
+table.list tbody tr:hover { background: rgba(45,212,191,.045); }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+td .who { display: flex; align-items: center; gap: .65rem; }
+.sigil { flex: none; border-radius: 6px; display: block; }
+.h { font-family: var(--mono); font-size: .84em; }
+.h.dim { color: var(--dim); }
+.vdot { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; }
+.vdot.ok { color: var(--ac); background: rgba(45,212,191,.1); }
+.vdot.bad { color: var(--red); background: rgba(244,114,107,.12); }
+.badge {
+  display: inline-block; font: .66rem var(--mono); letter-spacing: .06em;
+  padding: .14rem .5rem; border-radius: 6px; text-transform: uppercase;
+  border: 1px solid var(--line); color: var(--mut);
+}
+.badge.cb { color: var(--amber); border-color: rgba(245,176,76,.3); background: rgba(245,176,76,.07); }
+.badge.opr { color: var(--ac); border-color: rgba(45,212,191,.3); background: rgba(45,212,191,.06); text-transform: none; letter-spacing: 0; }
+.badge.val { color: var(--ac); border-color: rgba(45,212,191,.3); background: rgba(45,212,191,.06); }
+
+/* ---------- detail pages ---------- */
+.crumb { font: .8rem var(--mono); color: var(--dim); margin-bottom: 1.2rem; display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.crumb a { color: var(--mut); } .crumb a:hover { color: var(--ac); }
+.detail-hero { display: flex; gap: 1.4rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.6rem; }
+.detail-hero .sigil.big { border-radius: 14px; }
+.detail-hero .tt { min-width: 0; flex: 1; }
+.detail-hero .tt .lbl { font: .7rem var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--ac); }
+.detail-hero .tt h1 { font-size: clamp(1.4rem, 4vw, 2.1rem); letter-spacing: -.02em; margin: .25rem 0 .3rem; word-break: break-all; font-family: var(--mono); font-weight: 600; }
+.detail-hero .tt .meta { color: var(--mut); font: .84rem var(--mono); display: flex; gap: 1.2rem; flex-wrap: wrap; }
+.kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .7rem; }
+.kv .item { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: .65rem .85rem; min-width: 0; }
+.kv .item .k { font: .66rem var(--mono); letter-spacing: .13em; text-transform: uppercase; color: var(--dim); }
+.kv .item .v { font: .86rem var(--mono); color: var(--text); margin-top: .25rem; word-break: break-all; }
+.kv .item .v a { word-break: break-all; }
+
+/* ---------- transactions ---------- */
+.tx {
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--panel);
+  padding: .9rem 1.1rem; margin-bottom: .7rem; transition: border-color .2s;
+}
+.tx:hover { border-color: var(--line2); }
+.tx .top { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; margin-bottom: .7rem; }
+.tx .top .sigil { border-radius: 5px; }
+.tx .txid { font: .84rem var(--mono); word-break: break-all; }
+.tx .amt { margin-left: auto; text-align: right; font: .84rem var(--mono); white-space: nowrap; }
+.tx .amt .fee { color: var(--dim); font-size: .74rem; }
+.flow { display: grid; grid-template-columns: 1fr auto 1fr; gap: 1rem; align-items: start; }
+.flow .col .cl { font: .66rem var(--mono); letter-spacing: .13em; text-transform: uppercase; color: var(--dim); margin-bottom: .4rem; }
+.io { font: .8rem var(--mono); padding: .32rem .55rem; border-radius: 7px; background: rgba(255,255,255,.025); margin-bottom: .3rem; display: flex; gap: .6rem; align-items: baseline; word-break: break-all; }
+.io .val { margin-left: auto; white-space: nowrap; color: var(--mut); flex: none; }
+.io a { color: var(--mut); } .io a:hover { color: var(--ac); }
+.io.coinbase { color: var(--amber); background: rgba(245,176,76,.05); }
+.io.opret { color: var(--ac); background: rgba(45,212,191,.05); font-style: italic; }
+.arrow { align-self: center; color: var(--dim); padding-top: 1rem; }
+.navblk { display: flex; gap: .6rem; margin: 1.4rem 0 0; }
+.navblk a {
+  flex: 1; text-align: center; font: .82rem var(--mono); color: var(--mut);
+  border: 1px solid var(--line); border-radius: 10px; padding: .55rem;
+  background: var(--panel); transition: all .2s;
+}
+.navblk a:hover { color: var(--ac); border-color: var(--line2); text-decoration: none; }
+.navblk a.dis { opacity: .3; pointer-events: none; }
+
+/* ---------- pegs ---------- */
+.pegs { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: .7rem; }
+.peg { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: .7rem .9rem; }
+.peg .amt { font: 600 1.05rem var(--sans); }
+.peg .amt small { color: var(--mut); font: .75rem var(--mono); font-weight: 400; }
+.peg .ref { font: .72rem var(--mono); color: var(--dim); margin-top: .3rem; word-break: break-all; }
+.peg .ref b { color: var(--mut); font-weight: 400; }
+
+/* ---------- loading / errors ---------- */
+.boot { display: grid; place-items: center; min-height: 55vh; text-align: center; }
+.boot .ring { width: 46px; height: 46px; margin: 0 auto 1.1rem; border-radius: 50%; border: 2px solid var(--line2); border-top-color: var(--ac); animation: spin .8s linear infinite; }
+.boot .msg { font: .85rem var(--mono); color: var(--mut); }
+.boot .msg b { color: var(--text); font-weight: 500; }
+.err { max-width: 34rem; margin: 4rem auto; border: 1px solid rgba(244,114,107,.35); background: rgba(244,114,107,.06); border-radius: var(--r); padding: 1.4rem 1.6rem; }
+.err h2 { margin: 0 0 .5rem; color: var(--red); font-size: 1rem; }
+.err p { color: var(--mut); font: .85rem var(--mono); word-break: break-all; margin: .3rem 0; }
+.err code { color: var(--text); }
+.empty { color: var(--dim); font: .85rem var(--mono); padding: 2rem; text-align: center; }
+
+footer {
+  border-top: 1px solid var(--line); margin-top: 3rem; padding: 1.4rem clamp(1rem, 4vw, 2.5rem) 2rem;
+  display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: baseline;
+  font: .76rem var(--mono); color: var(--dim); max-width: 72rem; margin-inline: auto;
+}
+footer .sp { flex: 1; }
+
+@media (max-width: 640px) {
+  .flow { grid-template-columns: 1fr; }
+  .arrow { display: none; }
+  .tx .amt { margin-left: 0; text-align: left; width: 100%; }
+  .hide-sm { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; transition-duration: .01ms !important; }
+}
 </style>
 </head>
 <body>
-<nav>
-  <a class="brand" href="https://sidestr.com/">side<b>·</b>str</a>
-  <a href="#/">explorer</a>
-  <a href="https://sidestr.com/spec/">spec</a>
-  <a href="https://github.com/sidestr/explorer">source</a>
-  <form id="mf"><input id="mirror" placeholder="mirror base URL (serves chain.json, blocks.json, blocks.dat)"><button>open</button></form>
-</nav>
-<main id="main"><p class="note">Give this page a mirror: <code>?mirror=https://host/path</code>. It fetches the chain document and every block, validates each one in your browser with the engine, and shows what it found. Read-only: no key, nothing to submit.</p></main>
+<div class="backdrop"></div>
+
+<header class="topbar">
+  <a class="brand" href="#/">
+    <span class="mark"><svg width="14" height="14" viewBox="0 0 18 18" fill="none"><rect x="1" y="7" width="16" height="4" rx="2" fill="#fff"/><rect x="1" y="13" width="10" height="4" rx="2" fill="#fff" opacity=".65"/></svg></span>
+    sidestr <span class="sep">·</span> <span class="sub">explorer</span>
+  </a>
+  <div class="search">
+    <svg class="icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.6"/><path d="m10.8 10.8 3 3"/></svg>
+    <input id="q" placeholder="height · block hash · txid · address" autocomplete="off" spellcheck="false">
+  </div>
+  <div class="status">
+    <span class="pill syncing" id="pill"><span class="dot"></span><span id="pilltxt">connecting</span></span>
+  </div>
+  <button class="iconbtn" id="sync" title="re-sync mirror">
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.5 1.8v2.6h-2.6"/></svg>
+  </button>
+</header>
+
+<main class="wrap" id="app"><div class="boot"><div><div class="ring"></div><div class="msg">loading mirror…</div></div></div></main>
+
+<footer>
+  <span>read-only · every block validated in this browser</span>
+  <span class="sp"></span>
+  <span>engine · <a href="https://bitcoin-kernel.com/">bitcoin-kernel</a></span>
+  <span><a href="https://sidestr.com/">sidestr.com</a></span>
+</footer>
+
 <script type="module">
+// The data layer is sidestr's own read-only explorer module: it range-fetches blocks
+// from the mirror and replays every rule through the kernel in this page.
+// Docs & source: https://sidestr.com/explorer/
 import { Explorer, opReturnText, addressToScript } from './explorer.mjs';
-const $ = (id) => document.getElementById(id); const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const q = new URLSearchParams(location.search); const mirror = q.get('mirror'); $('mirror').value = mirror ?? '';
-$('mf').onsubmit = (e) => { e.preventDefault(); const m = $('mirror').value.trim(); if (m) location.search = '?mirror=' + encodeURIComponent(m); };
-const when = (t) => new Date(t * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
-const ago = (t) => { const s = Math.floor(Date.now() / 1000 - t); return s < 90 ? `${s} s ago` : s < 5400 ? `${Math.round(s / 60)} min ago` : s < 172800 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`; };
-const coins = (sats) => (sats / 1e8).toFixed(8).replace(/\.?0+$/, '') || '0';
-let x = null;
-const link = { block: (b) => `<a href="#/block/${b.hash}" class="mono">${b.height}</a>`, hash: (h) => `<a href="#/block/${h}" class="mono">${esc(h.slice(0, 16))}…</a>`, tx: (id) => `<a href="#/tx/${id}" class="mono">${esc(id.slice(0, 16))}…</a>`, addr: (spk) => { const t = opReturnText(spk); if (spk.startsWith('6a')) return `<span class="mono mut">OP_RETURN ${t ? esc(t) : esc(spk.slice(2, 42)) + (spk.length > 42 ? '…' : '')}</span>`; return `<a href="#/address/${spk}" class="mono">${esc(x.address(spk))}</a>`; } };
-function overview() {
-  const c = x.chain, t = x.tip(), valid = x.blocks.filter((b) => b.verdict.ok).length;
-  const pegs = c.pegs.map((p) => `<tr><td class="mono">${esc(p.txid.slice(0, 16))}…:${p.vout}</td><td class="n">${coins(p.amount)}</td><td>${link.addr(p.script)}</td></tr>`).join('');
-  const rows = [...x.blocks].reverse().slice(0, 100).map((b) => `<tr><td>${link.block(b)}</td><td>${link.hash(b.hash)}</td><td class="mut">${ago(b.time)}</td><td class="n">${b.txs}</td><td class="n">${coins(b.fees)}</td><td class="n">${b.size}</td><td class="${b.verdict.ok ? 'ok' : 'bad'}">${b.verdict.ok ? '✓' : esc(b.verdict.failed.join(', '))}</td></tr>`).join('');
-  return `<h1>${esc(c.id)}</h1><p class="note">${esc(c.comment ?? '')}</p>
-  <div class="grid"><div class="card"><div class="k">height</div><div class="v">${t.height}</div></div><div class="card"><div class="k">supply</div><div class="v">${coins(x.supply())}</div></div><div class="card"><div class="k">coins</div><div class="v">${x.utxo.size}</div></div><div class="card"><div class="k">valid blocks</div><div class="v ${valid === x.blocks.length ? 'ok' : 'bad'}">${valid} / ${x.blocks.length}</div></div><div class="card"><div class="k">last block</div><div class="v">${ago(t.time)}</div></div></div>
-  <dl><dt>parent</dt><dd class="mono">${esc(c.parent)}</dd><dt>signer</dt><dd class="mono">${esc(c.signer ?? '')}</dd><dt>challenge</dt><dd class="mono">${esc(c.challenge)}</dd><dt>genesis</dt><dd>${link.hash(x.blocks[0].hash)}</dd><dt>prefix</dt><dd class="mono">${esc(c.addressPrefix)}</dd><dt>refund</dt><dd>${c.refundBlocks} parent blocks</dd><dt>mirror</dt><dd class="mono">${esc(x.mirror)}</dd></dl>
-  <h2>Genesis pegs</h2><table><tr><th>parent outpoint</th><th class="n">amount</th><th>minted to</th></tr>${pegs}</table>
-  <h2>Blocks</h2><table><tr><th>height</th><th>hash</th><th>when</th><th class="n">txs</th><th class="n">fees</th><th class="n">bytes</th><th>valid</th></tr>${rows}</table>`;
+
+const params = new URLSearchParams(location.search);
+const mirror = (params.get('mirror') ?? '').replace(/\/+$/, '') || null;
+const app = document.getElementById('app');
+const pill = document.getElementById('pill');
+const pilltxt = document.getElementById('pilltxt');
+
+let ex = null;            // the validated chain model (sidestr Explorer)
+let outValues = new Map(); // `${txid}:${vout}` -> sats, for input values
+let spentOutpoints = new Set(); // `${txid}:${vout}` already consumed
+let lastSync = 0;
+
+/* ---------------- formatting ---------------- */
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmtNum = (n) => Number(n).toLocaleString('en-US');
+const fmtSats = (n) => `${fmtNum(n)} sats`;
+const unit = () => ex?.chain?.addressPrefix ?? '';
+const fmtCoin = (n, max = 8) => `${(n / 1e8).toLocaleString('en-US', { maximumFractionDigits: max })} ${unit()}`;
+const shortHash = (h, a = 7, b = 5) => (h.length > a + b ? `${h.slice(0, a)}…${h.slice(-b)}` : h);
+const pad = (n) => String(n).padStart(2, '0');
+const fmtTime = (t) => { const d = new Date(t * 1000); return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
+function ago(t) {
+  const s = Math.max(0, Math.floor(Date.now() / 1000 - t));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m ago`;
+  return `${Math.floor(s / 86400)}d ago`;
 }
-function blockPage(ref) {
-  const b = x.block(ref); if (!b) return `<p>No block ${esc(ref)}.</p>`; const h = b.block.header;
-  const txs = b.txids.map((id, i) => { const t = x.txs.get(id); return `<tr><td>${link.tx(id)}</td><td>${i === 0 ? 'coinbase' : ''}</td><td class="n">${t.tx.inputs.length}</td><td class="n">${t.tx.outputs.length}</td><td class="n">${coins(t.tx.outputs.reduce((s, o) => s + o.value, 0))}</td><td class="n">${t.fee == null ? '' : coins(t.fee)}</td></tr>`; }).join('');
-  return `<h1>Block ${b.height}</h1><dl><dt>hash</dt><dd class="mono">${esc(b.hash)}</dd><dt>time</dt><dd>${when(b.time)} (${ago(b.time)})</dd><dt>previous</dt><dd>${b.height ? link.hash(h.prevBlockHash) : '<span class="mut">none, genesis</span>'}</dd><dt>next</dt><dd>${x.blocks[b.height + 1] ? link.hash(x.blocks[b.height + 1].hash) : '<span class="mut">tip</span>'}</dd><dt>merkle root</dt><dd class="mono">${esc(h.merkleRoot)}</dd><dt>bits</dt><dd class="mono">${h.bits.toString(16)}</dd><dt>size</dt><dd>${b.size} bytes, ${b.txs} transactions, fees ${coins(b.fees)}</dd><dt>coinbase pays</dt><dd>${coins(b.coinbaseValue)}</dd><dt>validation</dt><dd class="${b.verdict.ok ? 'ok' : 'bad'}">${b.height === 0 ? 'genesis, trusted root' : b.verdict.ok ? 'every rule passed, block signature included' : 'failed: ' + esc(b.verdict.failed.join(', '))}${b.verdict.skipped.length ? `<span class="mut"> · skipped: ${esc(b.verdict.skipped.join(', '))}</span>` : ''}</dd></dl>
-  <h2>Transactions</h2><table><tr><th>txid</th><th></th><th class="n">in</th><th class="n">out</th><th class="n">value</th><th class="n">fee</th></tr>${txs}</table>`;
+// printable text inside a script's pushes (a coinbase scriptSig: the BIP 34 height push, then a marker)
+const ascii = (hex) => {
+  if (!hex || !/^[0-9a-f]+$/i.test(hex)) return null;
+  const b = Uint8Array.from(hex.match(/../g), (x) => parseInt(x, 16)); const parts = [];
+  for (let i = 0; i < b.length;) { const op = b[i++]; let len = 0; if (op >= 1 && op <= 75) len = op; else if (op === 76) { len = b[i]; i += 1; } else if (op === 77) { len = b[i] | (b[i + 1] << 8); i += 2; } else continue;
+    const t = new TextDecoder().decode(b.slice(i, i + len)); i += len; if (/^[\x20-\x7e]{3,}$/.test(t)) parts.push(t); }
+  return parts.length ? parts.join(' · ') : null;
+};
+
+/* ---------------- hash sigils ---------------- */
+// A tiny identicon for each hash: 5x5 grid, mirrored, tinted inside the brand's teal band.
+function sigil(seed, px = 30) {
+  const bytes = [];
+  for (let i = 0; i + 1 < seed.length && bytes.length < 24; i += 2) bytes.push(parseInt(seed.slice(i, i + 2), 16));
+  if (!bytes.length) bytes.push(0);
+  const hue = 163 + (bytes[0] % 26);
+  const fg = `hsl(${hue} 72% 56%)`, fgAlt = `hsl(${(hue + 14) % 360} 65% 48%)`;
+  const pad = px * 0.07, cell = (px - pad * 2) / 5, rr = cell * 0.34;
+  let rects = '';
+  for (let y = 0; y < 5; y++) for (let x = 0; x < 3; x++) {
+    const n = y * 3 + x;
+    if (!((bytes[2 + (n >> 3)] ?? 0) >> (7 - (n & 7)) & 1)) continue;
+    const fill = ((bytes[1] ?? 0) & 3) === (n % 4) ? fgAlt : fg;
+    const ry = pad + y * cell;
+    const xs = x === 2 ? [pad + 2 * cell] : [pad + x * cell, pad + (4 - x) * cell];
+    for (const rx of xs) rects += `<rect x="${rx.toFixed(2)}" y="${ry.toFixed(2)}" width="${(cell * 0.88).toFixed(2)}" height="${(cell * 0.88).toFixed(2)}" rx="${rr.toFixed(2)}" fill="${fill}"/>`;
+  }
+  return `<svg class="sigil" width="${px}" height="${px}" viewBox="0 0 ${px} ${px}" aria-hidden="true"><rect width="${px}" height="${px}" rx="${(px * 0.24).toFixed(1)}" fill="rgba(148,196,184,.09)"/>${rects}</svg>`;
 }
-function txPage(id) {
-  const t = x.txs.get(id); if (!t) return `<p>No transaction ${esc(id)}.</p>`; const tx = t.tx;
-  const ins = tx.inputs.map((i) => t.coinbase ? `<tr><td class="mono mut">coinbase</td><td class="mono mut">${esc(i.scriptSig.slice(0, 60))}</td><td></td></tr>` : `<tr><td>${link.tx(i.prevout.txid)}:${i.prevout.vout}</td><td>${(() => { const p = x.txs.get(i.prevout.txid); const o = p?.tx.outputs[i.prevout.vout]; return o ? link.addr(o.scriptPubKey) : '<span class="mut">unknown</span>'; })()}</td><td class="n">${(() => { const o = x.txs.get(i.prevout.txid)?.tx.outputs[i.prevout.vout]; return o ? coins(o.value) : ''; })()}</td></tr>`).join('');
-  const outs = tx.outputs.map((o, v) => { const spent = [...x.txs.values()].find((u) => !u.coinbase && u.tx.inputs.some((i) => i.prevout.txid === id && i.prevout.vout === v)); return `<tr><td class="n">${v}</td><td>${link.addr(o.scriptPubKey)}</td><td class="n">${coins(o.value)}</td><td class="mut">${spent ? 'spent in ' + link.tx(spent.txid) : o.scriptPubKey.startsWith('6a') ? '' : 'unspent'}</td></tr>`; }).join('');
-  return `<h1>Transaction</h1><dl><dt>txid</dt><dd class="mono">${esc(id)}</dd><dt>block</dt><dd>${link.block(x.blocks[t.height])} · ${when(x.blocks[t.height].time)}</dd><dt>kind</dt><dd>${t.coinbase ? 'coinbase' : 'transaction'}${t.fee != null ? ', fee ' + coins(t.fee) : ''}</dd><dt>version</dt><dd>${tx.version}, locktime ${tx.lockTime}</dd></dl>
-  <h2>Inputs</h2><table><tr><th>outpoint</th><th>from</th><th class="n">value</th></tr>${ins}</table><h2>Outputs</h2><table><tr><th class="n">#</th><th>to</th><th class="n">value</th><th></th></tr>${outs}</table>`;
+
+/* ---------------- status ---------------- */
+function setPill(state, txt) { pill.className = `pill ${state}`; pilltxt.textContent = txt; }
+
+/* ---------------- indexes ---------------- */
+function rebuildIndexes() {
+  outValues = new Map();
+  spentOutpoints = new Set();
+  let txs = 0, fees = 0;
+  for (const t of ex.txs.values()) {
+    t.tx.outputs.forEach((o, i) => outValues.set(`${t.txid}:${i}`, o.value));
+    for (const inp of t.tx.inputs) if (inp.prevout.txid !== '0'.repeat(64)) spentOutpoints.add(`${inp.prevout.txid}:${inp.prevout.vout}`);
+    txs++;
+  }
+  for (const b of ex.blocks) if (b) fees += b.fees;
+  return { txs, fees };
 }
-function addressPage(ref) {
-  const spk = /^[0-9a-f]+$/i.test(ref) ? ref.toLowerCase() : addressToScript(ref, x.chain.addressPrefix); const a = spk && x.byScript.get(spk);
-  if (!a) return `<p>Nothing seen for ${esc(ref)}.</p>`;
-  const rows = [...a.outputs.map((o) => ({ h: o.height, what: `received in ${link.tx(o.txid)}`, v: o.value })), ...(a.spends ?? []).map((s) => ({ h: s.height, what: `spent in ${link.tx(s.txid)}`, v: -s.value }))].sort((p, q) => q.h - p.h).map((r) => `<tr><td>${link.block(x.blocks[r.h])}</td><td>${r.what}</td><td class="n ${r.v < 0 ? 'bad' : 'ok'}">${r.v < 0 ? '−' : '+'}${coins(Math.abs(r.v))}</td></tr>`).join('');
-  return `<h1>Address</h1><dl><dt>address</dt><dd class="mono">${esc(x.address(spk))}</dd><dt>script</dt><dd class="mono">${esc(spk)}</dd><dt>balance</dt><dd><b>${coins(x.balance(spk))}</b></dd><dt>received</dt><dd>${coins(a.received)}</dd><dt>spent</dt><dd>${coins(a.spent)}</dd></dl><h2>History</h2><table><tr><th>block</th><th></th><th class="n">amount</th></tr>${rows}</table>`;
+
+/* ---------------- shared fragments ---------------- */
+function verdictDot(b) {
+  if (b.height === 0) return `<span class="vdot ok" title="genesis · deterministic from the chain document"><svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 6.5 4.8 9 10 3.5"/></svg></span>`;
+  if (b.verdict.ok) return `<span class="vdot ok" title="every rule passed: headers · structure · context"><svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 6.5 4.8 9 10 3.5"/></svg></span>`;
+  return `<span class="vdot bad" title="failed: ${esc(b.verdict.failed.join(', ') || 'chain mismatch')}"><svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3l6 6M9 3l-6 6"/></svg></span>`;
 }
-function render() {
-  if (!x) return; const [, kind, ref] = location.hash.split('/');
-  $('main').innerHTML = kind === 'block' ? blockPage(ref) : kind === 'tx' ? txPage(ref) : kind === 'address' ? addressPage(decodeURIComponent(ref)) : overview();
+function ioAddress(spk) {
+  const text = opReturnText(spk);
+  if (text !== null) return { opret: text };
+  if (/^6a24aa21a9ed/i.test(spk)) return { opret: `witness commitment ${spk.slice(12, 28)}…${spk.length > 76 ? ' + block signature' : ''}` };
+  if (/^6a/i.test(spk)) return { opret: `data ${spk.slice(2, 34)}${spk.length > 34 ? '…' : ''}` };
+  const addr = ex.address(spk);
+  return { addr };
 }
-window.addEventListener('hashchange', render);
-if (mirror) {
-  $('main').innerHTML = `<p class="note">Loading ${esc(mirror)} and validating every block…</p>`;
-  try { x = await new Explorer(mirror).open(); render(); document.title = `${x.chain.name} · sidestr explorer`; setInterval(async () => { try { const h = x.blocks.length; await x.refresh(); if (x.blocks.length !== h && !location.hash.startsWith('#/tx') && !location.hash.startsWith('#/address')) render(); } catch {} }, 30000); }
-  catch (e) { $('main').innerHTML = `<p class="bad">Could not open ${esc(mirror)}: ${esc(e.message)}</p>`; }
+function txHtml(t) {
+  const tx = t.tx;
+  const total = tx.outputs.reduce((s, o) => s + o.value, 0);
+  const coinbase = tx.inputs.some((i) => i.prevout.txid === '0'.repeat(64));
+  const inputs = tx.inputs.map((inp) => {
+    if (inp.prevout.txid === '0'.repeat(64)) {
+      const msg = ascii(inp.scriptSig);
+      return `<div class="io coinbase">new coins${msg ? ` · “${esc(msg)}”` : ''}</div>`;
+    }
+    const v = outValues.get(`${inp.prevout.txid}:${inp.prevout.vout}`);
+    return `<div class="io"><a href="#/tx/${inp.prevout.txid}">${shortHash(inp.prevout.txid)}</a><span class="dim">:${inp.prevout.vout}</span>${v !== undefined ? `<span class="val">${fmtSats(v)}</span>` : ''}</div>`;
+  }).join('');
+  const outputs = tx.outputs.map((o, i) => {
+    const r = ioAddress(o.scriptPubKey);
+    if (r.opret !== undefined) return `<div class="io opret">OP_RETURN · “${esc(r.opret)}”</div>`;
+    const spent = spentOutpoints.has(`${t.txid}:${i}`);
+    return `<div class="io"><span class="dim">#${i}</span> <a href="#/address/${encodeURIComponent(r.addr)}">${esc(shortHash(r.addr, 12, 8))}</a>${spent ? '' : ' <span class="badge val" title="unspent">utxo</span>'}<span class="val">${fmtSats(o.value)}</span></div>`;
+  }).join('');
+  return `<div class="tx">
+    <div class="top">${sigil(t.txid, 22)}<a class="txid" href="#/tx/${t.txid}">${shortHash(t.txid, 14, 10)}</a>
+      ${coinbase ? '<span class="badge cb">coinbase</span>' : ''}
+      <span class="amt">${fmtSats(total)}${t.fee !== null && t.fee !== undefined ? `<div class="fee">fee ${fmtSats(t.fee)}</div>` : ''}</span></div>
+    <div class="flow">
+      <div class="col"><div class="cl">inputs · ${tx.inputs.length}</div>${inputs}</div>
+      <div class="arrow"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 10h13m-4-4 4 4-4 4"/></svg></div>
+      <div class="col"><div class="cl">outputs · ${tx.outputs.length}</div>${outputs}</div>
+    </div>
+  </div>`;
 }
+
+/* ---------------- home ---------------- */
+function renderHome() {
+  const chain = ex.chain;
+  const tip = ex.tip();
+  const { txs, fees } = rebuildIndexes();
+  const supply = ex.supply();
+  const pegged = (chain.pegs ?? []).reduce((s, p) => s + p.amount, 0);
+  const okBlocks = ex.blocks.filter((b) => b?.verdict.ok).length;
+  document.title = `${chain.name} · sidestr explorer`;
+  const rows = [...ex.blocks].reverse().map((b) => `<tr>
+      <td class="n"><a class="h" href="#/block/${b.height}">${b.height}</a></td>
+      <td><div class="who">${sigil(b.hash, 26)}<a class="h dim" href="#/block/${b.hash}" title="${b.hash}">${shortHash(b.hash)}</a></div></td>
+      <td class="h dim hide-sm" title="${fmtTime(b.time)}">${ago(b.time)}</td>
+      <td class="n">${b.txs}</td>
+      <td class="n hide-sm">${fmtNum(b.size)} B</td>
+      <td class="n hide-sm">${b.height === 0 ? '—' : fmtSats(b.fees)}</td>
+      <td class="n">${fmtSats(b.coinbaseValue)}</td>
+      <td>${verdictDot(b)}</td>
+    </tr>`).join('');
+  app.innerHTML = `<div class="view">
+    <section class="hero">
+      <div class="eyebrow">signed sidechain · level 1</div>
+      <h1>${esc(chain.name)} <span class="thin">/ ${esc(chain.parent)}</span></h1>
+      <p class="lede">${esc(chain.comment ?? '')}</p>
+      <div class="chips">
+        <span class="chip">chain <b>${esc(chain.id)}</b></span>
+        <span class="chip">prefix <b>${esc(chain.addressPrefix)}</b></span>
+        <span class="chip">signer <b class="h">${shortHash(chain.signer)}</b></span>
+        <span class="chip">genesis <a class="h" href="#/block/0" title="${chain.genesisHash}">${shortHash(chain.genesisHash)}</a></span>
+        <span class="chip"><a href="${esc(mirror)}/chain.json" target="_blank" rel="noopener">chain.json ↗</a></span>
+        <span class="chip"><a href="${esc(mirror)}/blocks.json" target="_blank" rel="noopener">blocks.json ↗</a></span>
+      </div>
+      <div class="chips">
+        <span class="chip">mirror <input id="mirror-in" class="mono" value="${esc(mirror)}" spellcheck="false" style="width:${Math.max(22, mirror.length)}ch;max-width:58vw;background:transparent;border:0;color:var(--ac);outline:none;font:inherit"></span>
+        <button class="iconbtn" id="mirror-go" title="load this mirror" style="width:auto;height:auto;padding:.3rem .7rem;font:.75rem var(--mono);transform:none">load</button>
+      </div>
+    </section>
+
+    <section class="stats stagger">
+      <div class="stat"><div class="k">tip height</div><div class="v" data-count="${tip.height}">0</div><div class="s">${ago(tip.time)}</div></div>
+      <div class="stat"><div class="k">blocks validated</div><div class="v" data-count="${ex.blocks.length}">0</div><div class="s"><span class="ok">✓ ${okBlocks} ok</span> · in this browser</div></div>
+      <div class="stat"><div class="k">transactions</div><div class="v" data-count="${txs}">0</div><div class="s">fees ${fmtSats(fees)}</div></div>
+      <div class="stat"><div class="k">supply</div><div class="v">${esc(fmtCoin(supply))}</div><div class="s">${fmtSats(supply)}</div></div>
+      <div class="stat"><div class="k">pegged in</div><div class="v">${esc(fmtCoin(pegged))}</div><div class="s">${(chain.pegs ?? []).length} peg${(chain.pegs ?? []).length === 1 ? '' : 's'} · ${chain.pegConfirmations} confs</div></div>
+    </section>
+
+    <section class="valid">
+      <div class="head"><span class="vdot ok"><svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 6.5 4.8 9 10 3.5"/></svg></span> validated from the mirror, no trust in it <span class="live">checked ${ago(lastSync)} · read-only</span></div>
+      <div class="steps">
+        <div class="step done"><span class="n">1</span> fetch chain.json</div>
+        <div class="step done"><span class="n">2</span> load kernel + sidestr overlay</div>
+        <div class="step done"><span class="n">3</span> range-fetch blocks.dat · ${ex.blocks.length} block${ex.blocks.length === 1 ? '' : 's'}</div>
+        <div class="step done"><span class="n">4</span> verify headers · structure · context</div>
+        <div class="step done"><span class="n">5</span> rebuild UTXO set &amp; indexes</div>
+      </div>
+    </section>
+
+    <div class="sect"><h2>blocks</h2><span class="count">${ex.blocks.length}</span></div>
+    <div class="card"><table class="list"><thead><tr>
+      <th class="n">height</th><th>hash</th><th class="hide-sm">age</th><th class="n">txs</th><th class="n hide-sm">size</th><th class="n hide-sm">fees</th><th class="n">coinbase</th><th></th>
+    </tr></thead><tbody class="stagger">${rows}</tbody></table></div>
+
+    <div class="sect"><h2>pegs</h2><span class="count">${(chain.pegs ?? []).length} × locked on ${esc(chain.parent)}</span></div>
+    <div class="pegs stagger">${(chain.pegs ?? []).map((p) => `<div class="peg">
+      <div class="amt">${esc(fmtCoin(p.amount, 2))} <small>· ${fmtSats(p.amount)}</small></div>
+      <div class="ref"><b>parent outpoint</b> <span class="h">${shortHash(p.txid)}:${p.vout}</span></div>
+      <div class="ref"><b>address</b> <span class="h">${esc(shortHash(p.parentAddress, 14, 10))}</span></div>
+    </div>`).join('') || '<div class="empty">no pegs</div>'}</div>
+  </div>`;
+  document.getElementById('mirror-go').onclick = () => {
+    const m = document.getElementById('mirror-in').value.trim().replace(/\/+$/, '');
+    if (m && m !== mirror) location.href = `${location.pathname}?mirror=${encodeURIComponent(m)}`;
+  };
+  document.getElementById('mirror-in').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('mirror-go').click(); });
+  countUps();
+}
+
+/* ---------------- block ---------------- */
+function renderBlock(ref) {
+  const b = ex.block(ref);
+  if (!b) return notFound(`no block at “${ref}”`);
+  document.title = `block ${b.height} · ${ex.chain.name}`;
+  const h = b.block.header;
+  const msgs = b.block.transactions[0].outputs.map((o) => opReturnText(o.scriptPubKey)).filter((x) => x !== null);
+  const kv = Object.entries(h).map(([k, v]) => {
+    let val;
+    if (typeof v === 'number') val = /time/i.test(k) && v > 1e9 ? `${fmtNum(v)} <span class="dim">· ${esc(fmtTime(v))}</span>` : fmtNum(v);
+    else if (typeof v === 'string') val = /^[0-9a-f]{16,}$/i.test(v) ? `<span class="h">${v}</span>` : esc(v);
+    else val = `<span class="h">${esc(JSON.stringify(v))}</span>`;
+    if (k === 'prevBlockHash' && /^[0-9a-f]{64}$/i.test(v)) val = `<a class="h" href="#/block/${v}" title="${v}">${shortHash(v, 20, 12)}</a>`;
+    return `<div class="item"><div class="k">${esc(k)}</div><div class="v">${val}</div></div>`;
+  }).join('');
+  const txs = b.txids.map((txid) => txHtml(ex.txs.get(txid))).join('');
+  app.innerHTML = `<div class="view">
+    <div class="crumb"><a href="#/">${esc(ex.chain.name)}</a> <span>/</span> <span>block ${b.height}</span></div>
+    <section class="detail-hero">
+      ${sigil(b.hash, 68)}
+      <div class="tt">
+        <div class="lbl">block</div>
+        <h1>#${fmtNum(b.height)}</h1>
+        <div class="meta">
+          <span class="h" title="${b.hash}">${shortHash(b.hash, 18, 14)}</span>
+          <span>${fmtTime(b.time)} · ${ago(b.time)}</span>
+          <span>${b.txs} tx${b.txs === 1 ? '' : 's'} · ${fmtNum(b.size)} B</span>
+          <span>fees ${b.height === 0 ? '—' : fmtSats(b.fees)}</span>
+          ${b.height === 0 ? '<span class="badge val" title="block 0 is built from the chain document and trusted as the root; every later block is validated against it">genesis · trusted root</span>' : b.verdict.ok ? '<span class="badge val">✓ all rules passed</span>' : `<span class="badge" style="color:var(--red);border-color:rgba(244,114,107,.4)">✗ ${esc(b.verdict.failed.join(', ') || 'mismatch')}</span>`}
+        </div>
+      </div>
+    </section>
+    ${msgs.length ? `<div class="tx"><div class="io opret" style="margin:0">signer message · “${esc(msgs.join(' · '))}”</div></div>` : ''}
+    <div class="sect"><h2>header</h2><span class="count">decoded</span></div>
+    <div class="kv">${kv}</div>
+    <div class="sect"><h2>transactions</h2><span class="count">${b.txs}</span></div>
+    ${txs}
+    <div class="navblk">
+      ${b.height === 0 ? '<span class="dis">genesis</span>' : `<a href="#/block/${b.height - 1}">← block ${b.height - 1}</a>`}
+      <a href="#/block/${b.height + 1}" class="${b.height === ex.tip().height ? 'dis' : ''}">block ${b.height + 1} →</a>
+    </div>
+  </div>`;
+}
+
+/* ---------------- transaction ---------------- */
+function renderTx(txid) {
+  const t = ex.txs.get(txid);
+  if (!t) return notFound(`no transaction “${shortHash(txid)}”`);
+  document.title = `tx ${shortHash(txid)} · ${ex.chain.name}`;
+  const total = t.tx.outputs.reduce((s, o) => s + o.value, 0);
+  app.innerHTML = `<div class="view">
+    <div class="crumb"><a href="#/">${esc(ex.chain.name)}</a> <span>/</span> <a href="#/block/${t.height}">block ${t.height}</a> <span>/</span> <span>tx</span></div>
+    <section class="detail-hero">
+      ${sigil(txid, 68)}
+      <div class="tt">
+        <div class="lbl">transaction</div>
+        <h1>${txid}</h1>
+        <div class="meta">
+          <span>${fmtSats(total)} total output</span>
+          ${t.coinbase ? '<span class="badge cb">coinbase</span>' : `<span>fee ${fmtSats(t.fee)}</span>`}
+          <a href="#/block/${t.height}">block ${t.height}</a>
+          <span>${fmtTime(ex.blocks[t.height].time)}</span>
+        </div>
+      </div>
+    </section>
+    ${txHtml(t)}
+  </div>`;
+}
+
+/* ---------------- address ---------------- */
+function renderAddress(addr) {
+  const spk = addressToScript(addr, ex.chain.addressPrefix);
+  if (!spk) return notFound(`“${addr}” is not a ${esc(ex.chain.addressPrefix)}1 address`);
+  const a = ex.byScript.get(spk);
+  const balance = ex.balance(spk);
+  const received = a?.received ?? 0, spent = a?.spent ?? 0;
+  const spentKeys = new Set((a?.spends ?? []).map((s) => s.key));
+  const utxos = (a?.outputs ?? []).filter((o) => !spentKeys.has(`${o.txid}:${o.vout}`));
+  const history = [
+    ...(a?.outputs ?? []).map((o) => ({ ...o, dir: 'in' })),
+    ...(a?.spends ?? []).map((s) => ({ ...s, dir: 'out' })),
+  ].sort((x, y) => y.height - x.height);
+  document.title = `${addr.slice(0, 18)}… · ${ex.chain.name}`;
+  app.innerHTML = `<div class="view">
+    <div class="crumb"><a href="#/">${esc(ex.chain.name)}</a> <span>/</span> <span>address</span></div>
+    <section class="detail-hero">
+      ${sigil(spk, 68)}
+      <div class="tt">
+        <div class="lbl">address</div>
+        <h1>${esc(addr)}</h1>
+        <div class="meta">
+          <span>balance ${fmtSats(balance)}</span>
+          <span>${utxos.length} utxo${utxos.length === 1 ? '' : 's'}</span>
+        </div>
+      </div>
+    </section>
+    <div class="kv" style="margin-bottom:1.6rem">
+      <div class="item"><div class="k">received</div><div class="v">${fmtSats(received)}</div></div>
+      <div class="item"><div class="k">spent</div><div class="v">${fmtSats(spent)}</div></div>
+      <div class="item"><div class="k">script pubkey</div><div class="v"><span class="h">${esc(spk)}</span></div></div>
+    </div>
+    <div class="sect"><h2>utxos</h2><span class="count">${utxos.length}</span></div>
+    <div class="card"><table class="list"><thead><tr><th>outpoint</th><th class="n">value</th><th class="hide-sm">mined in</th></tr></thead>
+      <tbody class="stagger">${utxos.map((o) => `<tr><td><a class="h" href="#/tx/${o.txid}">${shortHash(o.txid)}:${o.vout}</a></td><td class="n">${fmtSats(o.value)}</td><td class="hide-sm"><a class="h dim" href="#/block/${o.height}">${o.height}</a></td></tr>`).join('') || '<tr><td colspan="3" class="empty">nothing here — all spent</td></tr>'}</tbody></table></div>
+    <div class="sect"><h2>history</h2><span class="count">${history.length}</span></div>
+    <div class="card"><table class="list"><thead><tr><th></th><th>tx</th><th class="n">value</th><th class="hide-sm">block</th></tr></thead>
+      <tbody class="stagger">${history.map((o) => `<tr><td>${o.dir === 'in' ? '<span class="badge val">in</span>' : '<span class="badge">out</span>'}</td><td><a class="h" href="#/tx/${o.txid}">${shortHash(o.txid)}</a></td><td class="n">${fmtSats(o.value)}</td><td class="hide-sm"><a class="h dim" href="#/block/${o.height}">${o.height}</a></td></tr>`).join('') || '<tr><td colspan="4" class="empty">no history</td></tr>'}</tbody></table></div>
+  </div>`;
+}
+
+/* ---------------- misc views ---------------- */
+function notFound(msg) {
+  document.title = 'not found · sidestr explorer';
+  app.innerHTML = `<div class="view"><div class="err"><h2>not found</h2><p>${esc(msg)}</p><p><a href="#/">← back to the chain</a></p></div></div>`;
+}
+function renderError(title, e) {
+  app.innerHTML = `<div class="boot"><div><div class="err" style="margin:0"><h2>${esc(title)}</h2><p>${esc(e?.message ?? e)}</p><p>mirror · <code>${esc(mirror)}</code></p><p>it must serve <code>chain.json</code>, <code>blocks.json</code> and <code>blocks.dat</code> with CORS open — <a href="${esc(location.pathname)}">reset to the default mirror</a></p></div></div></div>`;
+}
+function countUps() {
+  document.querySelectorAll('[data-count]').forEach((n) => {
+    const target = Number(n.dataset.count), t0 = performance.now();
+    const step = (t) => {
+      const p = Math.min(1, (t - t0) / 900);
+      n.textContent = fmtNum(Math.round(target * (1 - Math.pow(1 - p, 3))));
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
+
+/* ---------------- router ---------------- */
+function route() {
+  if (!ex) return;
+  window.scrollTo({ top: 0 });
+  const parts = location.hash.replace(/^#\/?/, '').split('/');
+  const [seg, arg] = parts;
+  if (!seg) return renderHome();
+  if (seg === 'block') return renderBlock(decodeURIComponent(arg ?? ''));
+  if (seg === 'tx') return renderTx(decodeURIComponent(arg ?? ''));
+  if (seg === 'address') return renderAddress(decodeURIComponent(arg ?? ''));
+  renderHome();
+}
+window.addEventListener('hashchange', route);
+
+/* ---------------- search ---------------- */
+document.getElementById('q').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || !ex) return;
+  const q = e.target.value.trim();
+  if (!q) return;
+  if (/^\d+$/.test(q)) return (location.hash = `#/block/${q}`);
+  if (/^[0-9a-f]{64}$/i.test(q)) {
+    if (ex.block(q)) return (location.hash = `#/block/${q}`);
+    if (ex.txs.has(q)) return (location.hash = `#/tx/${q}`);
+    return notFound(`no block or transaction for ${shortHash(q, 16, 8)}`);
+  }
+  if (q.toLowerCase().startsWith(ex.chain.addressPrefix.toLowerCase() + '1')) return (location.hash = `#/address/${encodeURIComponent(q)}`);
+  notFound(`don’t know what “${q}” is — try a height, a 64-char hash, or a ${esc(ex.chain.addressPrefix)}1… address`);
+});
+
+/* ---------------- sync ---------------- */
+async function sync(silent = false) {
+  if (!ex) return;
+  if (!silent) setPill('syncing', 'syncing…');
+  try {
+    await ex.refresh();
+    rebuildIndexes();
+    lastSync = Math.floor(Date.now() / 1000);
+    setPill('ok', `validated ${ex.blocks.length} block${ex.blocks.length === 1 ? '' : 's'}`);
+    route();
+  } catch (e) {
+    setPill('', 'sync failed');
+    if (!silent) console.error(e);
+  }
+}
+document.getElementById('sync').addEventListener('click', () => sync());
+setInterval(() => { if (ex && !document.hidden) sync(true); }, 60000);
+
+/* ---------------- boot ---------------- */
+(async () => {
+  if (!mirror) {
+    setPill('', 'no mirror');
+    app.innerHTML = `<div class="boot"><div><div class="err" style="margin:0"><h2>which chain?</h2><p>Give this page a mirror: a base URL that serves <code>chain.json</code>, <code>blocks.json</code> and <code>blocks.dat</code> with Range requests, as a siding producer or any static host does.</p><p><code>?mirror=https://host/path</code></p><p><input id="mirror-in0" placeholder="https://host/path" style="width:min(28rem,90vw);font:inherit;padding:.4rem .6rem"> <button id="mirror-go0">open</button></p></div></div></div>`;
+    document.getElementById('mirror-go0').onclick = () => { const m = document.getElementById('mirror-in0').value.trim(); if (m) location.search = '?mirror=' + encodeURIComponent(m); };
+    document.getElementById('mirror-in0').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('mirror-go0').click(); });
+    return;
+  }
+  setPill('syncing', 'validating…');
+  try {
+    ex = new Explorer(mirror);
+    await ex.open();
+    rebuildIndexes();
+    lastSync = Math.floor(Date.now() / 1000);
+    setPill('ok', `validated ${ex.blocks.length} block${ex.blocks.length === 1 ? '' : 's'}`);
+    route();
+  } catch (e) {
+    console.error(e);
+    setPill('', 'offline');
+    renderError('could not load this mirror', e);
+  }
+})();
 </script>
 </body>
 </html>
