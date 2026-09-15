@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sidestr explorer</title>
+<meta name="description" content="A read-only explorer for sidestr chains. Give it a mirror; it validates every block in your browser and shows blocks, transactions and addresses.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f766e'/%3E%3Crect x='7' y='14' width='18' height='4' rx='2' fill='%23fff'/%3E%3Crect x='7' y='21' width='11' height='4' rx='2' fill='%23fff' opacity='.7'/%3E%3C/svg%3E">
+<style>
+  :root { color-scheme: light dark; --ac: #0f766e; --mut: #6b7280; --bd: #8884; }
+  body { max-width: 60rem; margin: 1.5rem auto; padding: 0 1rem; font: 15px/1.5 system-ui, sans-serif; }
+  a { color: #0969da; text-decoration: none; } a:hover { text-decoration: underline; }
+  nav { display: flex; gap: 1rem; align-items: baseline; flex-wrap: wrap; margin-bottom: 1rem; font-size: .92em; }
+  nav .brand { font-weight: 700; color: inherit; } nav .brand b { color: var(--ac); }
+  nav form { margin-left: auto; display: flex; gap: .4rem; } nav input { font: inherit; padding: .2rem .5rem; width: 22rem; max-width: 60vw; }
+  h1 { font-size: 1.4rem; letter-spacing: -.3px; margin: .2rem 0 .6rem; } h2 { font-size: 1.05rem; margin: 1.4rem 0 .5rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .92em; } th, td { border-top: 1px solid var(--bd); padding: .35rem .5rem; text-align: left; vertical-align: top; } th { color: var(--mut); font-weight: 600; font-size: .82em; text-transform: uppercase; letter-spacing: .5px; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  code, .mono { font: .9em ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .8rem; margin: .8rem 0; }
+  .card { border: 1px solid var(--bd); border-radius: 10px; padding: .7rem .9rem; } .card .k { color: var(--mut); font-size: .78em; text-transform: uppercase; letter-spacing: .5px; } .card .v { font-size: 1.15em; font-weight: 600; }
+  .ok { color: #1a7f37; } .bad { color: #b91c1c; } .mut { color: var(--mut); }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; } dt { color: var(--mut); }
+  .note { color: var(--mut); font-size: .9em; }
+  @media (max-width: 640px) { dl { grid-template-columns: 1fr; } nav input { width: 100%; max-width: none; } }
+</style>
+</head>
+<body>
+<nav>
+  <a class="brand" href="https://sidestr.com/">side<b>·</b>str</a>
+  <a href="#/">explorer</a>
+  <a href="https://sidestr.com/spec/">spec</a>
+  <a href="https://github.com/sidestr/explorer">source</a>
+  <form id="mf"><input id="mirror" placeholder="mirror base URL (serves chain.json, blocks.json, blocks.dat)"><button>open</button></form>
+</nav>
+<main id="main"><p class="note">Give this page a mirror: <code>?mirror=https://host/path</code>. It fetches the chain document and every block, validates each one in your browser with the engine, and shows what it found. Read-only: no key, nothing to submit.</p></main>
+<script type="module">
+import { Explorer, opReturnText, addressToScript } from './explorer.mjs';
+const $ = (id) => document.getElementById(id); const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const q = new URLSearchParams(location.search); const mirror = q.get('mirror'); $('mirror').value = mirror ?? '';
+$('mf').onsubmit = (e) => { e.preventDefault(); const m = $('mirror').value.trim(); if (m) location.search = '?mirror=' + encodeURIComponent(m); };
+const when = (t) => new Date(t * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+const ago = (t) => { const s = Math.floor(Date.now() / 1000 - t); return s < 90 ? `${s} s ago` : s < 5400 ? `${Math.round(s / 60)} min ago` : s < 172800 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`; };
+const coins = (sats) => (sats / 1e8).toFixed(8).replace(/\.?0+$/, '') || '0';
+let x = null;
+const link = { block: (b) => `<a href="#/block/${b.hash}" class="mono">${b.height}</a>`, hash: (h) => `<a href="#/block/${h}" class="mono">${esc(h.slice(0, 16))}…</a>`, tx: (id) => `<a href="#/tx/${id}" class="mono">${esc(id.slice(0, 16))}…</a>`, addr: (spk) => { const t = opReturnText(spk); if (spk.startsWith('6a')) return `<span class="mono mut">OP_RETURN ${t ? esc(t) : esc(spk.slice(2, 42)) + (spk.length > 42 ? '…' : '')}</span>`; return `<a href="#/address/${spk}" class="mono">${esc(x.address(spk))}</a>`; } };
+function overview() {
+  const c = x.chain, t = x.tip(), valid = x.blocks.filter((b) => b.verdict.ok).length;
+  const pegs = c.pegs.map((p) => `<tr><td class="mono">${esc(p.txid.slice(0, 16))}…:${p.vout}</td><td class="n">${coins(p.amount)}</td><td>${link.addr(p.script)}</td></tr>`).join('');
+  const rows = [...x.blocks].reverse().slice(0, 100).map((b) => `<tr><td>${link.block(b)}</td><td>${link.hash(b.hash)}</td><td class="mut">${ago(b.time)}</td><td class="n">${b.txs}</td><td class="n">${coins(b.fees)}</td><td class="n">${b.size}</td><td class="${b.verdict.ok ? 'ok' : 'bad'}">${b.verdict.ok ? '✓' : esc(b.verdict.failed.join(', '))}</td></tr>`).join('');
+  return `<h1>${esc(c.id)}</h1><p class="note">${esc(c.comment ?? '')}</p>
+  <div class="grid"><div class="card"><div class="k">height</div><div class="v">${t.height}</div></div><div class="card"><div class="k">supply</div><div class="v">${coins(x.supply())}</div></div><div class="card"><div class="k">coins</div><div class="v">${x.utxo.size}</div></div><div class="card"><div class="k">valid blocks</div><div class="v ${valid === x.blocks.length ? 'ok' : 'bad'}">${valid} / ${x.blocks.length}</div></div><div class="card"><div class="k">last block</div><div class="v">${ago(t.time)}</div></div></div>
+  <dl><dt>parent</dt><dd class="mono">${esc(c.parent)}</dd><dt>signer</dt><dd class="mono">${esc(c.signer ?? '')}</dd><dt>challenge</dt><dd class="mono">${esc(c.challenge)}</dd><dt>genesis</dt><dd>${link.hash(x.blocks[0].hash)}</dd><dt>prefix</dt><dd class="mono">${esc(c.addressPrefix)}</dd><dt>refund</dt><dd>${c.refundBlocks} parent blocks</dd><dt>mirror</dt><dd class="mono">${esc(x.mirror)}</dd></dl>
+  <h2>Genesis pegs</h2><table><tr><th>parent outpoint</th><th class="n">amount</th><th>minted to</th></tr>${pegs}</table>
+  <h2>Blocks</h2><table><tr><th>height</th><th>hash</th><th>when</th><th class="n">txs</th><th class="n">fees</th><th class="n">bytes</th><th>valid</th></tr>${rows}</table>`;
+}
+function blockPage(ref) {
+  const b = x.block(ref); if (!b) return `<p>No block ${esc(ref)}.</p>`; const h = b.block.header;
+  const txs = b.txids.map((id, i) => { const t = x.txs.get(id); return `<tr><td>${link.tx(id)}</td><td>${i === 0 ? 'coinbase' : ''}</td><td class="n">${t.tx.inputs.length}</td><td class="n">${t.tx.outputs.length}</td><td class="n">${coins(t.tx.outputs.reduce((s, o) => s + o.value, 0))}</td><td class="n">${t.fee == null ? '' : coins(t.fee)}</td></tr>`; }).join('');
+  return `<h1>Block ${b.height}</h1><dl><dt>hash</dt><dd class="mono">${esc(b.hash)}</dd><dt>time</dt><dd>${when(b.time)} (${ago(b.time)})</dd><dt>previous</dt><dd>${b.height ? link.hash(h.prevBlockHash) : '<span class="mut">none, genesis</span>'}</dd><dt>next</dt><dd>${x.blocks[b.height + 1] ? link.hash(x.blocks[b.height + 1].hash) : '<span class="mut">tip</span>'}</dd><dt>merkle root</dt><dd class="mono">${esc(h.merkleRoot)}</dd><dt>bits</dt><dd class="mono">${h.bits.toString(16)}</dd><dt>size</dt><dd>${b.size} bytes, ${b.txs} transactions, fees ${coins(b.fees)}</dd><dt>coinbase pays</dt><dd>${coins(b.coinbaseValue)}</dd><dt>validation</dt><dd class="${b.verdict.ok ? 'ok' : 'bad'}">${b.height === 0 ? 'genesis, trusted root' : b.verdict.ok ? 'every rule passed, block signature included' : 'failed: ' + esc(b.verdict.failed.join(', '))}${b.verdict.skipped.length ? `<span class="mut"> · skipped: ${esc(b.verdict.skipped.join(', '))}</span>` : ''}</dd></dl>
+  <h2>Transactions</h2><table><tr><th>txid</th><th></th><th class="n">in</th><th class="n">out</th><th class="n">value</th><th class="n">fee</th></tr>${txs}</table>`;
+}
+function txPage(id) {
+  const t = x.txs.get(id); if (!t) return `<p>No transaction ${esc(id)}.</p>`; const tx = t.tx;
+  const ins = tx.inputs.map((i) => t.coinbase ? `<tr><td class="mono mut">coinbase</td><td class="mono mut">${esc(i.scriptSig.slice(0, 60))}</td><td></td></tr>` : `<tr><td>${link.tx(i.prevout.txid)}:${i.prevout.vout}</td><td>${(() => { const p = x.txs.get(i.prevout.txid); const o = p?.tx.outputs[i.prevout.vout]; return o ? link.addr(o.scriptPubKey) : '<span class="mut">unknown</span>'; })()}</td><td class="n">${(() => { const o = x.txs.get(i.prevout.txid)?.tx.outputs[i.prevout.vout]; return o ? coins(o.value) : ''; })()}</td></tr>`).join('');
+  const outs = tx.outputs.map((o, v) => { const spent = [...x.txs.values()].find((u) => !u.coinbase && u.tx.inputs.some((i) => i.prevout.txid === id && i.prevout.vout === v)); return `<tr><td class="n">${v}</td><td>${link.addr(o.scriptPubKey)}</td><td class="n">${coins(o.value)}</td><td class="mut">${spent ? 'spent in ' + link.tx(spent.txid) : o.scriptPubKey.startsWith('6a') ? '' : 'unspent'}</td></tr>`; }).join('');
+  return `<h1>Transaction</h1><dl><dt>txid</dt><dd class="mono">${esc(id)}</dd><dt>block</dt><dd>${link.block(x.blocks[t.height])} · ${when(x.blocks[t.height].time)}</dd><dt>kind</dt><dd>${t.coinbase ? 'coinbase' : 'transaction'}${t.fee != null ? ', fee ' + coins(t.fee) : ''}</dd><dt>version</dt><dd>${tx.version}, locktime ${tx.lockTime}</dd></dl>
+  <h2>Inputs</h2><table><tr><th>outpoint</th><th>from</th><th class="n">value</th></tr>${ins}</table><h2>Outputs</h2><table><tr><th class="n">#</th><th>to</th><th class="n">value</th><th></th></tr>${outs}</table>`;
+}
+function addressPage(ref) {
+  const spk = /^[0-9a-f]+$/i.test(ref) ? ref.toLowerCase() : addressToScript(ref, x.chain.addressPrefix); const a = spk && x.byScript.get(spk);
+  if (!a) return `<p>Nothing seen for ${esc(ref)}.</p>`;
+  const rows = [...a.outputs.map((o) => ({ h: o.height, what: `received in ${link.tx(o.txid)}`, v: o.value })), ...(a.spends ?? []).map((s) => ({ h: s.height, what: `spent in ${link.tx(s.txid)}`, v: -s.value }))].sort((p, q) => q.h - p.h).map((r) => `<tr><td>${link.block(x.blocks[r.h])}</td><td>${r.what}</td><td class="n ${r.v < 0 ? 'bad' : 'ok'}">${r.v < 0 ? '−' : '+'}${coins(Math.abs(r.v))}</td></tr>`).join('');
+  return `<h1>Address</h1><dl><dt>address</dt><dd class="mono">${esc(x.address(spk))}</dd><dt>script</dt><dd class="mono">${esc(spk)}</dd><dt>balance</dt><dd><b>${coins(x.balance(spk))}</b></dd><dt>received</dt><dd>${coins(a.received)}</dd><dt>spent</dt><dd>${coins(a.spent)}</dd></dl><h2>History</h2><table><tr><th>block</th><th></th><th class="n">amount</th></tr>${rows}</table>`;
+}
+function render() {
+  if (!x) return; const [, kind, ref] = location.hash.split('/');
+  $('main').innerHTML = kind === 'block' ? blockPage(ref) : kind === 'tx' ? txPage(ref) : kind === 'address' ? addressPage(decodeURIComponent(ref)) : overview();
+}
+window.addEventListener('hashchange', render);
+if (mirror) {
+  $('main').innerHTML = `<p class="note">Loading ${esc(mirror)} and validating every block…</p>`;
+  try { x = await new Explorer(mirror).open(); render(); document.title = `${x.chain.name} · sidestr explorer`; setInterval(async () => { try { const h = x.blocks.length; await x.refresh(); if (x.blocks.length !== h && !location.hash.startsWith('#/tx') && !location.hash.startsWith('#/address')) render(); } catch {} }, 30000); }
+  catch (e) { $('main').innerHTML = `<p class="bad">Could not open ${esc(mirror)}: ${esc(e.message)}</p>`; }
+}
+</script>
+</body>
+</html>
