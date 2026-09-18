@@ -319,7 +319,7 @@ footer .sp { flex: 1; }
 // The data layer is sidestr's own read-only explorer module: it range-fetches blocks
 // from the mirror and replays every rule through the kernel in this page.
 // Docs & source: https://sidestr.com/explorer/
-import { Explorer, opReturnText, addressToScript, CDN, SIDESTR } from './explorer.mjs';
+import { Explorer, opReturnText, addressToScript, scriptToAddress, CDN, SIDESTR } from './explorer.mjs';
 
 const params = new URLSearchParams(location.search);
 // Either a mirror, or a chain id: with only the id the page asks the relays for the signer's tip
@@ -410,7 +410,7 @@ function verdictDot(b) {
 }
 function ioAddress(spk) {
   const text = opReturnText(spk);
-  if (text !== null) return { opret: text };
+  if (text !== null) { const m = /^pegout:((?:[0-9a-f]{2}){2,40})$/.exec(text); if (m) { const hrp = /mainnet/.test(ex.chain.parent) ? 'bc' : /regtest/.test(ex.chain.parent) ? 'bcrt' : 'tb'; const pa = scriptToAddress(m[1], hrp); return { opret: `peg-out → ${pa ?? m[1]} on ${ex.chain.parent}` }; } return { opret: text }; }
   if (/^6a24aa21a9ed/i.test(spk)) return { opret: `witness commitment ${spk.slice(12, 28)}…${spk.length > 76 ? ' + block signature' : ''}` };
   if (/^6a/i.test(spk)) return { opret: `data ${spk.slice(2, 34)}${spk.length > 34 ? '…' : ''}` };
   const addr = ex.address(spk);
