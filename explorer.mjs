@@ -34,6 +34,7 @@ export async function loadEngine(chain, opts = {}) {
   const jj = (p) => j(`${cdn}/${p}`); const rules = rulesFor(chain); // SPEC 12: the rules the document names, or a refusal
   const k = createKernel({ core: await jj('schema/core.jsonld'), proof: await jj('schema/proof.jsonld'), script: await jj('schema/script.jsonld'), chain: await jj('schema/chain.jsonld'), validate: await jj('schema/validate.jsonld'),
     network: chain.id, overlays: [knotsBlake2b(await jj('schema/overlays/knots-blake2b.jsonld')), sidestrOverlay(chain, { hash, secp }), ...rules.overlays] }); // secp: a federated document's challenge is checked against its signers
+  if (rules.evm) await rules.evm.init(); // the evm rule fetches ethereumjs (from jsdelivr in a page) only on a chain that names it
   return { k, hash, nostr, rules };
 }
 
@@ -53,13 +54,15 @@ export class Explorer {
       const r = await fetch(`${this.mirror}/blocks.dat`, { headers: { range: `bytes=${e.offset + 8}-${e.offset + 8 + e.size - 1}` }, cache: 'no-store' });
       fetched.set(e.height, new Uint8Array(await r.arrayBuffer()));
     }));
-    for (const e of pending) this.#apply(e, fetched.get(e.height));
+    for (const e of pending) await this.#apply(e, fetched.get(e.height));
     this.index = index; return this;
   }
-  #apply(entry, bytes) {
+  async #apply(entry, bytes) {
     const { k } = this; const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
     const block = k.codec.decode('Block', hex); const h = entry.height; const hash = k.codec.blockHash(block.header);
     let verdict = { ok: true, failed: [], skipped: [] };
+    // the evm rule executes before the kernel's checks and leaves the verdict the sync rule reads (proposals/evm.md)
+    if (this.rules?.evm) { if (h === 0) { this.rules.evm.roots.set(0, this.rules.evm.roots.get(-1)); this.rules.evm.blocks.set(0, { hashes: [], root: '0x' + this.rules.evm.roots.get(-1) }); } else { const v = await this.rules.evm.prepare(block, h, k.codec); if (!v.ok) verdict.evm = v.error; } }
     if (h > 0) {
       const [hv] = k.headers.validateChain([block.header], { startHeight: h, prevContext: this.headers.slice(0, h), now: Math.floor(Date.now() / 1000) + 7200 });
       const s = k.blocks.validateBlockStructure(block); const c = k.blocks.validateBlockContext(block, { height: h, utxo: this.utxo, mtp: k.headers.medianTimePast(this.headers.slice(Math.max(0, h - 11), h)) });
