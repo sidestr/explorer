@@ -328,7 +328,7 @@ const params = new URLSearchParams(location.search);
 // announcement: same tip hash, or it is behind or lying.
 const chainId = (params.get('chain') ?? '').trim() || null;
 let mirror = (params.get('mirror') ?? '').replace(/\/+$/, '') || null;
-const relays = (params.get('relay') ?? 'wss://nos.lol,wss://relay.damus.io,wss://relay.primal.net').split(',').map((x) => x.trim()).filter(Boolean);
+const relays = (params.get('relay') ?? 'wss://nos.lol,wss://relay.damus.io,wss://relay.primal.net,wss://nostr.mom,wss://nostr.oxtr.dev').split(',').map((x) => x.trim()).filter(Boolean);
 let announced = null;     // the signer's latest tip announcement, when a relay had one
 let mirrorVerdict = null; // how the mirror stands against it
 const app = document.getElementById('app');
