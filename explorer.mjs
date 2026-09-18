@@ -1,8 +1,8 @@
 // Reads a sidestr chain from a mirror (chain.json, blocks.json, blocks.dat with Range) and validates
 // every block with the engine in memory: headers, structure including the block signature, and
 // context against a UTXO set it builds itself. No key, no submit, no DOM: index.html renders this.
-const CDN = 'https://cdn.jsdelivr.net/gh/bitcoin-desktop/schema@v0.0.27';
-const SIDESTR = 'https://cdn.jsdelivr.net/gh/sidestr/spec@d49fddb4cd46829fa6d459f2ccbe10022ec1b528/siding/lib';
+export const CDN = 'https://cdn.jsdelivr.net/gh/bitcoin-desktop/schema@v0.0.27';
+export const SIDESTR = 'https://cdn.jsdelivr.net/gh/sidestr/spec@e4e2b31aa6daf6df7a810154f217148dc104e1ee/siding/lib';
 
 const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
 const polymod = (values) => { const G = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]; let chk = 1; for (const v of values) { const top = chk >>> 25; chk = ((chk & 0x1ffffff) << 5) ^ v; for (let i = 0; i < 5; i++) if ((top >>> i) & 1) chk ^= G[i]; } return chk >>> 0; };
@@ -30,11 +30,11 @@ export const opReturnText = (spk) => { const m = /^6a(?:4c)?([0-9a-f]{2})([0-9a-
 // `opts` lets a test point at local checkouts: { cdn, sidestr, loadJson(url) }
 export async function loadEngine(chain, opts = {}) {
   const cdn = opts.cdn ?? CDN, side = opts.sidestr ?? SIDESTR, j = opts.loadJson ?? (async (u) => (await fetch(u)).json());
-  const [{ createKernel }, { knotsBlake2b }, { sidestrOverlay }, hash] = await Promise.all([import(`${cdn}/codec/kernel.js`), import(`${cdn}/codec/overlays/knots-blake2b.js`), import(`${side}/overlay.mjs`), import(`${cdn}/codec/hash.js`)]);
+  const [{ createKernel }, { knotsBlake2b }, { sidestrOverlay }, hash, nostr] = await Promise.all([import(`${cdn}/codec/kernel.js`), import(`${cdn}/codec/overlays/knots-blake2b.js`), import(`${side}/overlay.mjs`), import(`${cdn}/codec/hash.js`), import(`${cdn}/codec/nostr.js`)]);
   const jj = (p) => j(`${cdn}/${p}`);
   const k = createKernel({ core: await jj('schema/core.jsonld'), proof: await jj('schema/proof.jsonld'), script: await jj('schema/script.jsonld'), chain: await jj('schema/chain.jsonld'), validate: await jj('schema/validate.jsonld'),
     network: chain.id, overlays: [knotsBlake2b(await jj('schema/overlays/knots-blake2b.jsonld')), sidestrOverlay(chain, { hash })] });
-  return { k, hash };
+  return { k, hash, nostr };
 }
 
 // the chain as a model: blocks in order, each validated, plus indexes for the page
@@ -42,7 +42,7 @@ export class Explorer {
   constructor(mirror, opts = {}) { this.opts = opts; this.mirror = mirror.replace(/\/$/, ''); this.blocks = []; this.txs = new Map(); this.utxo = new Map(); this.byScript = new Map(); this.headers = []; }
   async open() {
     this.chain = await (await fetch(`${this.mirror}/chain.json`, { cache: 'no-store' })).json();
-    const { k, hash } = await loadEngine(this.chain, this.opts); this.k = k; this.hash = hash;
+    const { k, hash, nostr } = await loadEngine(this.chain, this.opts); this.k = k; this.hash = hash; this.nostr = nostr;
     return this.refresh();
   }
   async refresh() {
@@ -78,6 +78,7 @@ export class Explorer {
     for (const [key, coin, txid] of spends) { const a = this.byScript.get(coin.output.scriptPubKey); if (a) { a.spent += coin.output.value; a.spends = a.spends ?? []; a.spends.push({ key, txid, value: coin.output.value, height: h }); } }
   }
   tip() { return this.blocks[this.blocks.length - 1]; }
+  headerHex(h) { return this.headers[h] ? this.k.codec.encodeHex('BlockHeader', this.headers[h]) : null; }
   supply() { let s = 0; for (const c of this.utxo.values()) s += c.output.value; return s; }
   balance(spk) { let s = 0; for (const c of this.utxo.values()) if (c.output.scriptPubKey === spk) s += c.output.value; return s; }
   address(spk) { return scriptToAddress(spk, this.chain.addressPrefix) ?? spk; }

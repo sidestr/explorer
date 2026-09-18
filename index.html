@@ -319,10 +319,17 @@ footer .sp { flex: 1; }
 // The data layer is sidestr's own read-only explorer module: it range-fetches blocks
 // from the mirror and replays every rule through the kernel in this page.
 // Docs & source: https://sidestr.com/explorer/
-import { Explorer, opReturnText, addressToScript } from './explorer.mjs';
+import { Explorer, opReturnText, addressToScript, CDN, SIDESTR } from './explorer.mjs';
 
 const params = new URLSearchParams(location.search);
-const mirror = (params.get('mirror') ?? '').replace(/\/+$/, '') || null;
+// Either a mirror, or a chain id: with only the id the page asks the relays for the signer's tip
+// announcement (kind 33333, d = chain id), which names the mirrors. A mirror is then held to the
+// announcement: same tip hash, or it is behind or lying.
+const chainId = (params.get('chain') ?? '').trim() || null;
+let mirror = (params.get('mirror') ?? '').replace(/\/+$/, '') || null;
+const relays = (params.get('relay') ?? 'wss://nos.lol,wss://relay.damus.io').split(',').map((x) => x.trim()).filter(Boolean);
+let announced = null;     // the signer's latest tip announcement, when a relay had one
+let mirrorVerdict = null; // how the mirror stands against it
 const app = document.getElementById('app');
 const pill = document.getElementById('pill');
 const pilltxt = document.getElementById('pilltxt');
@@ -473,6 +480,7 @@ function renderHome() {
       </div>
       <div class="chips">
         <span class="chip">mirror <input id="mirror-in" class="mono" value="${esc(mirror)}" spellcheck="false" style="width:${Math.max(22, mirror.length)}ch;max-width:58vw;background:transparent;border:0;color:var(--ac);outline:none;font:inherit"></span>
+        ${announced ? `<span class="chip" title="${esc(mirrorVerdict?.note ?? '')}">${mirrorVerdict?.ok === false ? '⚠' : '✓'} signer announced <b>${announced.tip}</b>${chainId ? ' · found by chain id' : ''}${mirrorVerdict?.ok === false ? ` · <b>${esc(mirrorVerdict.note)}</b>` : ''}</span>` : ''}
         <button class="iconbtn" id="mirror-go" title="load this mirror" style="width:auto;height:auto;padding:.3rem .7rem;font:.75rem var(--mono);transform:none">load</button>
       </div>
     </section>
@@ -510,7 +518,7 @@ function renderHome() {
   </div>`;
   document.getElementById('mirror-go').onclick = () => {
     const m = document.getElementById('mirror-in').value.trim().replace(/\/+$/, '');
-    if (m && m !== mirror) location.href = `${location.pathname}?mirror=${encodeURIComponent(m)}`;
+    if (m && m !== mirror) location.href = `${location.pathname}?mirror=${encodeURIComponent(m)}`; else if (m && chainId) location.href = `${location.pathname}?mirror=${encodeURIComponent(m)}`;
   };
   document.getElementById('mirror-in').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('mirror-go').click(); });
   countUps();
@@ -632,7 +640,7 @@ function notFound(msg) {
   app.innerHTML = `<div class="view"><div class="err"><h2>not found</h2><p>${esc(msg)}</p><p><a href="#/">← back to the chain</a></p></div></div>`;
 }
 function renderError(title, e) {
-  app.innerHTML = `<div class="boot"><div><div class="err" style="margin:0"><h2>${esc(title)}</h2><p>${esc(e?.message ?? e)}</p><p>mirror · <code>${esc(mirror)}</code></p><p>it must serve <code>chain.json</code>, <code>blocks.json</code> and <code>blocks.dat</code> with CORS open — <a href="${esc(location.pathname)}">reset to the default mirror</a></p></div></div></div>`;
+  app.innerHTML = `<div class="boot"><div><div class="err" style="margin:0"><h2>${esc(title)}</h2><p>${esc(e?.message ?? e)}</p><p>${mirror ? `mirror · <code>${esc(mirror)}</code>` : `chain · <code>${esc(chainId)}</code> · relays ${esc(relays.join(', '))}`}</p><p>it must serve <code>chain.json</code>, <code>blocks.json</code> and <code>blocks.dat</code> with CORS open — <a href="${esc(location.pathname)}">reset to the default mirror</a></p></div></div></div>`;
 }
 function countUps() {
   document.querySelectorAll('[data-count]').forEach((n) => {
@@ -695,27 +703,51 @@ setInterval(() => { if (ex && !document.hidden) sync(true); }, 60000);
 
 /* ---------------- boot ---------------- */
 (async () => {
-  if (!mirror) {
-    setPill('', 'no mirror');
-    app.innerHTML = `<div class="boot"><div><div class="err" style="margin:0"><h2>which chain?</h2><p>Give this page a mirror: a base URL that serves <code>chain.json</code>, <code>blocks.json</code> and <code>blocks.dat</code> with Range requests, as a siding producer or any static host does.</p><p><code>?mirror=https://host/path</code></p><p><input id="mirror-in0" placeholder="https://host/path" style="width:min(28rem,90vw);font:inherit;padding:.4rem .6rem"> <button id="mirror-go0">open</button></p></div></div></div>`;
+  if (!mirror && !chainId) {
+    setPill('', 'no chain');
+    app.innerHTML = `<div class="boot"><div><div class="err" style="margin:0"><h2>which chain?</h2><p>Give this page a chain id: it asks the relays for the signer's tip announcement, which names the mirrors.</p><p><code>?chain=sidestr:…</code></p><p><input id="chain-in0" placeholder="sidestr:name" style="width:min(28rem,90vw);font:inherit;padding:.4rem .6rem"> <button id="chain-go0">find</button></p><p>Or a mirror: a base URL that serves <code>chain.json</code>, <code>blocks.json</code> and <code>blocks.dat</code> with Range requests, as a siding producer or any static host does.</p><p><code>?mirror=https://host/path</code></p><p><input id="mirror-in0" placeholder="https://host/path" style="width:min(28rem,90vw);font:inherit;padding:.4rem .6rem"> <button id="mirror-go0">open</button></p></div></div></div>`;
     document.getElementById('mirror-go0').onclick = () => { const m = document.getElementById('mirror-in0').value.trim(); if (m) location.search = '?mirror=' + encodeURIComponent(m); };
     document.getElementById('mirror-in0').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('mirror-go0').click(); });
+    document.getElementById('chain-go0').onclick = () => { const c = document.getElementById('chain-in0').value.trim(); if (c) location.search = '?chain=' + encodeURIComponent(c); };
+    document.getElementById('chain-in0').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('chain-go0').click(); });
     return;
   }
-  setPill('syncing', 'validating…');
   try {
+    if (!mirror) {
+      setPill('syncing', 'finding the chain…');
+      const [a, nostr] = await Promise.all([import(`${SIDESTR}/announce.mjs`), import(`${CDN}/codec/nostr.js`)]);
+      const found = await a.findChain({ relays, chainId, verify: nostr.verifyNostrEvent });
+      mirror = found.mirror; announced = found.tip;
+    }
+    setPill('syncing', 'validating…');
     ex = new Explorer(mirror);
     await ex.open();
     rebuildIndexes();
     lastSync = Math.floor(Date.now() / 1000);
     setPill('ok', `validated ${ex.blocks.length} block${ex.blocks.length === 1 ? '' : 's'}`);
     route();
+    watchTips();
   } catch (e) {
     console.error(e);
     setPill('', 'offline');
-    renderError('could not load this mirror', e);
+    renderError(mirror ? 'could not load this mirror' : 'could not find this chain', e);
   }
 })();
+
+// the signer's announcements: judge the mirror against the latest, and sync when a new one arrives
+async function watchTips() {
+  try {
+    const [a, r] = await Promise.all([import(`${SIDESTR}/announce.mjs`), import(`${SIDESTR}/relay.mjs`)]);
+    const verify = ex.nostr.verifyNostrEvent, signer = ex.chain.signer, chain = ex.chain.id;
+    if (!announced || announced.pubkey !== signer) announced = await a.fetchLatestTip({ relays, chainId: chain, verify, signer });
+    judge(a);
+    r.subscribe({ relays, chainId: chain, verify, kind: a.TIP_KIND, tag: 'd', since: 60, onEvent: async (ev) => {
+      const t = a.parseTip(ev); if (!t || t.pubkey !== signer || (announced && t.tip <= announced.tip)) return;
+      announced = t; await sync(true); judge(a);
+    } });
+  } catch (e) { console.warn('tip announcements:', e); }
+}
+function judge(a) { const tip = ex.tip(); mirrorVerdict = a.judgeMirror({ announced, height: tip.height, headerHex: ex.headerHex(tip.height) }); route(); }
 </script>
 </body>
 </html>
