@@ -320,6 +320,7 @@ footer .sp { flex: 1; }
 // from the mirror and replays every rule through the kernel in this page.
 // Docs & source: https://sidestr.com/explorer/
 import { Explorer, opReturnText, addressToScript, scriptToAddress, CDN, SIDESTR } from './explorer.mjs';
+const REC = await import(`${SIDESTR}/records.mjs`); // SPEC 12 records: issue, tally, pool
 
 const params = new URLSearchParams(location.search);
 // Either a mirror, or a chain id: with only the id the page asks the relays for the signer's tip
@@ -410,16 +411,28 @@ function verdictDot(b) {
   if (b.verdict.ok) return `<span class="vdot ok" title="every rule passed: headers · structure · context"><svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 6.5 4.8 9 10 3.5"/></svg></span>`;
   return `<span class="vdot bad" title="failed: ${esc(b.verdict.failed.join(', ') || 'chain mismatch')}"><svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3l6 6M9 3l-6 6"/></svg></span>`;
 }
+// SPEC 12: an asset's name and amounts, when the chain names the assets rule
+const assetOf = (id) => { const a = ex?.rules?.assets?.issued.get(id); if (a) return { id, ticker: a.ticker, decimals: a.decimals, share: false }; if (ex?.rules?.pool?.pools.has(id)) { const p = ex.rules.pool.pools.get(id); const b = ex.rules.assets.issued.get(p.asset); return { id, ticker: `LP·${b?.ticker ?? p.asset.slice(0, 4)}`, decimals: 0, share: true }; } return { id, ticker: id.slice(0, 6) + '…', decimals: 0, share: false }; };
+const fmtAsset = (id, n) => { const a = assetOf(id); if (!a.decimals) return `${fmtNum(n)} ${a.ticker}`; const s = String(n).padStart(a.decimals + 1, '0'); return `${fmtNum(Number(s.slice(0, -a.decimals)))}.${s.slice(-a.decimals)} ${a.ticker}`; };
+// what a transaction's tallies assign to each output: vout -> [[asset, amount]]
+function talliesOf(tx, txid) { const out = new Map(); if (!ex?.rules?.assets) return out; for (const t of REC.classify(tx).tallies) { const asset = t.asset === 'self' ? txid : t.asset; for (const { vout, amount } of t.assigns) { if (!out.has(vout)) out.set(vout, []); out.get(vout).push([asset, amount]); } } return out; }
+function recordLabel(text, txid) {
+  const i = REC.parseIssue(text); if (i) return `issued ${i.ticker} · ${i.decimals} decimal${i.decimals === 1 ? '' : 's'} · asset id = this txid`;
+  const t = REC.parseTally(text); if (t) { const asset = t.asset === 'self' ? txid : t.asset; return `tally · ${t.assigns.map((a) => `#${a.vout} ← ${fmtAsset(asset, a.amount)}`).join(', ')}`; }
+  const p = REC.parsePool(text); if (p) return `pool coin at #${p.vout} · pool ${p.pool === 'self' ? 'opened here (id = this txid)' : shortHash(p.pool)}`;
+  return null;
+}
 function ioAddress(spk) {
   const text = opReturnText(spk);
-  if (text !== null) { const m = /^pegout:((?:[0-9a-f]{2}){2,40})$/.exec(text); if (m) { const hrp = /mainnet/.test(ex.chain.parent) ? 'bc' : /regtest/.test(ex.chain.parent) ? 'bcrt' : 'tb'; const pa = scriptToAddress(m[1], hrp); return { opret: `peg-out → ${pa ?? m[1]} on ${ex.chain.parent}` }; } return { opret: text }; }
+  if (text !== null) { const rl = ex?.rules?.assets ? recordLabel(text, currentTxid) : null; if (rl) return { opret: rl, record: true }; const m = /^pegout:((?:[0-9a-f]{2}){2,40})$/.exec(text); if (m) { const hrp = /mainnet/.test(ex.chain.parent) ? 'bc' : /regtest/.test(ex.chain.parent) ? 'bcrt' : 'tb'; const pa = scriptToAddress(m[1], hrp); return { opret: `peg-out → ${pa ?? m[1]} on ${ex.chain.parent}` }; } return { opret: text }; }
   if (/^6a24aa21a9ed/i.test(spk)) return { opret: `witness commitment ${spk.slice(12, 28)}…${spk.length > 76 ? ' + block signature' : ''}` };
   if (/^6a/i.test(spk)) return { opret: `data ${spk.slice(2, 34)}${spk.length > 34 ? '…' : ''}` };
   const addr = ex.address(spk);
   return { addr };
 }
+let currentTxid = null; // the transaction being rendered, for record labels
 function txHtml(t) {
-  const tx = t.tx;
+  const tx = t.tx; currentTxid = t.txid; const carried = talliesOf(tx, t.txid);
   const total = tx.outputs.reduce((s, o) => s + o.value, 0);
   const coinbase = tx.inputs.some((i) => i.prevout.txid === '0'.repeat(64));
   const inputs = tx.inputs.map((inp) => {
@@ -434,8 +447,8 @@ function txHtml(t) {
     const r = ioAddress(o.scriptPubKey);
     if (r.opret !== undefined) { const paid = r.opret.startsWith('peg-out') ? pegoutsPaid[`${t.txid}:${i}`] : null; const burn = r.opret.startsWith('peg-out') ? `<span class="val">${fmtSats(o.value)}</span>` : '';
       return `<div class="io opret">OP_RETURN · “${esc(r.opret)}”${burn}${paid ? ` <span class="dim">· paid on the parent in <span class="mono" title="${esc(paid.parentTxid)}">${esc(paid.parentTxid.slice(0, 16))}…</span></span>` : r.opret.startsWith('peg-out') ? ` <span class="dim">· not yet recorded as paid</span>` : ''}</div>`; }
-    const spent = spentOutpoints.has(`${t.txid}:${i}`);
-    return `<div class="io"><span class="dim">#${i}</span> <a href="#/address/${encodeURIComponent(r.addr)}">${esc(shortHash(r.addr, 12, 8))}</a>${spent ? '' : ' <span class="badge val" title="unspent">utxo</span>'}<span class="val">${fmtSats(o.value)}</span></div>`;
+    const spent = spentOutpoints.has(`${t.txid}:${i}`); const assets = carried.get(i);
+    return `<div class="io${o.scriptPubKey === '51' ? ' opret' : ''}"><span class="dim">#${i}</span> ${o.scriptPubKey === '51' ? '<span title="OP_TRUE: a pool coin, spent by the pool rule">pool coin</span>' : `<a href="#/address/${encodeURIComponent(r.addr)}">${esc(shortHash(r.addr, 12, 8))}</a>`}${assets ? assets.map(([a, n]) => ` <span class="badge" title="${esc(a)}">${esc(fmtAsset(a, n))}</span>`).join('') : ''}${spent ? '' : ' <span class="badge val" title="unspent">utxo</span>'}<span class="val">${fmtSats(o.value)}</span></div>`;
   }).join('');
   return `<div class="tx">
     <div class="top">${sigil(t.txid, 22)}<a class="txid" href="#/tx/${t.txid}">${shortHash(t.txid, 14, 10)}</a>
@@ -518,6 +531,7 @@ function renderHome() {
       <div class="ref"><b>parent outpoint</b> <span class="h">${shortHash(p.txid)}:${p.vout}</span></div>
       <div class="ref"><b>address</b> <span class="h">${esc(shortHash(p.parentAddress, 14, 10))}</span></div>
     </div>`).join('') || '<div class="empty">no pegs</div>'}</div>
+    ${ex.rules?.assets ? assetsSections() : ''}
   </div>`;
   document.getElementById('mirror-go').onclick = () => {
     const m = document.getElementById('mirror-in').value.trim().replace(/\/+$/, '');
@@ -525,6 +539,27 @@ function renderHome() {
   };
   document.getElementById('mirror-in').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('mirror-go').click(); });
   countUps();
+}
+
+// SPEC 12: the chain's assets (supply = what unspent outputs carry) and pools
+function assetsSections() {
+  const supply = new Map(); for (const m of ex.rules.assets.carried.values()) for (const [a, n] of m) supply.set(a, (supply.get(a) ?? 0) + n);
+  const assets = [...ex.rules.assets.issued.entries()].map(([id, a]) => ({ id, ...a, supply: supply.get(id) ?? 0 }));
+  const pools = [...ex.rules.pool?.pools.entries() ?? []].map(([id, p]) => ({ id, ...p }));
+  const market = `https://play-grounds.github.io/sidestr/tally/?chain=${encodeURIComponent(ex.chain.id)}`;
+  return `
+    <div class="sect"><h2>assets</h2><span class="count">${assets.length} issued · unbacked</span></div>
+    <div class="pegs stagger">${assets.map((a) => `<div class="peg">
+      <div class="amt">${esc(a.ticker)} <small>· ${a.decimals} decimals</small></div>
+      <div class="ref"><b>in circulation</b> <span class="h">${esc(fmtAsset(a.id, a.supply))}</span></div>
+      <div class="ref"><b>issued in</b> <a class="h" href="#/tx/${a.id}">${shortHash(a.id)}</a> · block ${a.height}</div>
+    </div>`).join('') || '<div class="empty">nothing issued yet</div>'}</div>
+    <div class="sect"><h2>pools</h2><span class="count">${pools.length} · <a href="${market}" target="_blank" rel="noopener">market ↗</a></span></div>
+    <div class="pegs stagger">${pools.map((p) => `<div class="peg">
+      <div class="amt">${esc(assetOf(p.asset).ticker)} / sats <small>· 1 = ${fmtNum(Math.round(p.x / p.y * 10 ** assetOf(p.asset).decimals))} sats</small></div>
+      <div class="ref"><b>holds</b> <span class="h">${fmtSats(p.x)} · ${esc(fmtAsset(p.asset, p.y))}</span></div>
+      <div class="ref"><b>shares</b> <span class="h">${fmtNum(p.shares)}</span> · <b>coin</b> <a class="h" href="#/tx/${p.outpoint.split(':')[0]}">${shortHash(p.outpoint.split(':')[0])}:${p.outpoint.split(':')[1]}</a></div>
+    </div>`).join('') || '<div class="empty">no pool yet</div>'}</div>`;
 }
 
 /* ---------------- block ---------------- */
