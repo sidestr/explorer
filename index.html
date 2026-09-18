@@ -338,6 +338,8 @@ let ex = null;            // the validated chain model (sidestr Explorer)
 let outValues = new Map(); // `${txid}:${vout}` -> sats, for input values
 let spentOutpoints = new Set(); // `${txid}:${vout}` already consumed
 let lastSync = 0;
+let pegoutsPaid = {};     // `${txid}:${vout}` -> { parentTxid, ... } from the mirror's pegouts.json, when it has one
+async function loadPegouts() { try { const r = await fetch(`${mirror}/pegouts.json`, { cache: 'no-store' }); if (r.ok) pegoutsPaid = (await r.json()).paid ?? {}; } catch {} }
 
 /* ---------------- formatting ---------------- */
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -430,7 +432,8 @@ function txHtml(t) {
   }).join('');
   const outputs = tx.outputs.map((o, i) => {
     const r = ioAddress(o.scriptPubKey);
-    if (r.opret !== undefined) return `<div class="io opret">OP_RETURN · “${esc(r.opret)}”</div>`;
+    if (r.opret !== undefined) { const paid = r.opret.startsWith('peg-out') ? pegoutsPaid[`${t.txid}:${i}`] : null; const burn = r.opret.startsWith('peg-out') ? `<span class="val">${fmtSats(o.value)}</span>` : '';
+      return `<div class="io opret">OP_RETURN · “${esc(r.opret)}”${burn}${paid ? ` <span class="dim">· paid on the parent in <span class="mono" title="${esc(paid.parentTxid)}">${esc(paid.parentTxid.slice(0, 16))}…</span></span>` : r.opret.startsWith('peg-out') ? ` <span class="dim">· not yet recorded as paid</span>` : ''}</div>`; }
     const spent = spentOutpoints.has(`${t.txid}:${i}`);
     return `<div class="io"><span class="dim">#${i}</span> <a href="#/address/${encodeURIComponent(r.addr)}">${esc(shortHash(r.addr, 12, 8))}</a>${spent ? '' : ' <span class="badge val" title="unspent">utxo</span>'}<span class="val">${fmtSats(o.value)}</span></div>`;
   }).join('');
@@ -489,8 +492,8 @@ function renderHome() {
       <div class="stat"><div class="k">tip height</div><div class="v" data-count="${tip.height}">0</div><div class="s">${ago(tip.time)}</div></div>
       <div class="stat"><div class="k">blocks validated</div><div class="v" data-count="${ex.blocks.length}">0</div><div class="s"><span class="ok">✓ ${okBlocks} ok</span> · in this browser</div></div>
       <div class="stat"><div class="k">transactions</div><div class="v" data-count="${txs}">0</div><div class="s">fees ${fmtSats(fees)}</div></div>
-      <div class="stat"><div class="k">supply</div><div class="v">${esc(fmtCoin(supply))}</div><div class="s">${fmtSats(supply)}</div></div>
-      <div class="stat"><div class="k">pegged in</div><div class="v">${esc(fmtCoin(pegged))}</div><div class="s">${(chain.pegs ?? []).length} peg${(chain.pegs ?? []).length === 1 ? '' : 's'} · ${chain.pegConfirmations} confs</div></div>
+      <div class="stat"><div class="k">supply</div><div class="v">${fmtSats(supply)}</div><div class="s">${esc(fmtCoin(supply))}</div></div>
+      <div class="stat"><div class="k">pegged in</div><div class="v">${fmtSats(pegged)}</div><div class="s">${esc(fmtCoin(pegged))} · ${(chain.pegs ?? []).length} peg${(chain.pegs ?? []).length === 1 ? '' : 's'} · ${chain.pegConfirmations} confs</div></div>
     </section>
 
     <section class="valid">
@@ -511,7 +514,7 @@ function renderHome() {
 
     <div class="sect"><h2>pegs</h2><span class="count">${(chain.pegs ?? []).length} × locked on ${esc(chain.parent)}</span></div>
     <div class="pegs stagger">${(chain.pegs ?? []).map((p) => `<div class="peg">
-      <div class="amt">${esc(fmtCoin(p.amount, 2))} <small>· ${fmtSats(p.amount)}</small></div>
+      <div class="amt">${fmtSats(p.amount)} <small>· ${esc(fmtCoin(p.amount, 2))}</small></div>
       <div class="ref"><b>parent outpoint</b> <span class="h">${shortHash(p.txid)}:${p.vout}</span></div>
       <div class="ref"><b>address</b> <span class="h">${esc(shortHash(p.parentAddress, 14, 10))}</span></div>
     </div>`).join('') || '<div class="empty">no pegs</div>'}</div>
@@ -690,7 +693,7 @@ async function sync(silent = false) {
   try {
     await ex.refresh();
     rebuildIndexes();
-    lastSync = Math.floor(Date.now() / 1000);
+    lastSync = Math.floor(Date.now() / 1000); await loadPegouts();
     setPill('ok', `validated ${ex.blocks.length} block${ex.blocks.length === 1 ? '' : 's'}`);
     route();
   } catch (e) {
@@ -723,7 +726,7 @@ setInterval(() => { if (ex && !document.hidden) sync(true); }, 60000);
     ex = new Explorer(mirror);
     await ex.open();
     rebuildIndexes();
-    lastSync = Math.floor(Date.now() / 1000);
+    lastSync = Math.floor(Date.now() / 1000); await loadPegouts();
     setPill('ok', `validated ${ex.blocks.length} block${ex.blocks.length === 1 ? '' : 's'}`);
     route();
     watchTips();
