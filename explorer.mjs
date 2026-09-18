@@ -2,7 +2,7 @@
 // every block with the engine in memory: headers, structure including the block signature, and
 // context against a UTXO set it builds itself. No key, no submit, no DOM: index.html renders this.
 export const CDN = 'https://cdn.jsdelivr.net/gh/bitcoin-desktop/schema@v0.0.27';
-export const SIDESTR = 'https://cdn.jsdelivr.net/gh/sidestr/spec@04b691b7ba3135354776f2c15125c53de5ea4452/siding/lib';
+export const SIDESTR = 'https://cdn.jsdelivr.net/gh/sidestr/spec@382aac2d93fb32093cdf73002a22a4c4ac68345f/siding/lib';
 
 const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
 const polymod = (values) => { const G = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]; let chk = 1; for (const v of values) { const top = chk >>> 25; chk = ((chk & 0x1ffffff) << 5) ^ v; for (let i = 0; i < 5; i++) if ((top >>> i) & 1) chk ^= G[i]; } return chk >>> 0; };
@@ -30,10 +30,10 @@ export const opReturnText = (spk) => { const m = /^6a(?:4c)?([0-9a-f]{2})([0-9a-
 // `opts` lets a test point at local checkouts: { cdn, sidestr, loadJson(url) }
 export async function loadEngine(chain, opts = {}) {
   const cdn = opts.cdn ?? CDN, side = opts.sidestr ?? SIDESTR, j = opts.loadJson ?? (async (u) => (await fetch(u)).json());
-  const [{ createKernel }, { knotsBlake2b }, { sidestrOverlay }, hash, nostr, { rulesFor }] = await Promise.all([import(`${cdn}/codec/kernel.js`), import(`${cdn}/codec/overlays/knots-blake2b.js`), import(`${side}/overlay.mjs`), import(`${cdn}/codec/hash.js`), import(`${cdn}/codec/nostr.js`), import(`${side}/overlays/index.mjs`)]);
+  const [{ createKernel }, { knotsBlake2b }, { sidestrOverlay }, hash, nostr, { rulesFor }, secp] = await Promise.all([import(`${cdn}/codec/kernel.js`), import(`${cdn}/codec/overlays/knots-blake2b.js`), import(`${side}/overlay.mjs`), import(`${cdn}/codec/hash.js`), import(`${cdn}/codec/nostr.js`), import(`${side}/overlays/index.mjs`), import(`${cdn}/codec/secp256k1.js`)]);
   const jj = (p) => j(`${cdn}/${p}`); const rules = rulesFor(chain); // SPEC 12: the rules the document names, or a refusal
   const k = createKernel({ core: await jj('schema/core.jsonld'), proof: await jj('schema/proof.jsonld'), script: await jj('schema/script.jsonld'), chain: await jj('schema/chain.jsonld'), validate: await jj('schema/validate.jsonld'),
-    network: chain.id, overlays: [knotsBlake2b(await jj('schema/overlays/knots-blake2b.jsonld')), sidestrOverlay(chain, { hash }), ...rules.overlays] });
+    network: chain.id, overlays: [knotsBlake2b(await jj('schema/overlays/knots-blake2b.jsonld')), sidestrOverlay(chain, { hash, secp }), ...rules.overlays] }); // secp: a federated document's challenge is checked against its signers
   return { k, hash, nostr, rules };
 }
 
