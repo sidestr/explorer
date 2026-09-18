@@ -340,6 +340,9 @@ let outValues = new Map(); // `${txid}:${vout}` -> sats, for input values
 let spentOutpoints = new Set(); // `${txid}:${vout}` already consumed
 let lastSync = 0;
 let pegoutsPaid = {};     // `${txid}:${vout}` -> { parentTxid, ... } from the mirror's pegouts.json, when it has one
+let checkpoints = null;   // the mirror's checkpoints.json (SPEC 11), checked against the blocks validated here
+async function loadCheckpoints() { try { const r = await fetch(`${mirror}/checkpoints.json`, { cache: 'no-store' }); if (!r.ok) return; const j = await r.json(); const list = (j.checkpoints ?? []).map((c) => ({ ...c, ok: ex.blocks[c.height] ? ex.blocks[c.height].hash === c.hash : null })); checkpoints = { every: j.every, list, mismatch: list.find((c) => c.ok === false) ?? null, anchored: [...list].reverse().find((c) => c.ok && c.confirmations >= 1) ?? null }; } catch {} }
+const anchoredAt = (height) => { if (!checkpoints?.anchored) return null; return [...checkpoints.list].reverse().find((c) => c.ok && c.confirmations >= 1 && c.height >= height) ?? null; };
 async function loadPegouts() { try { const r = await fetch(`${mirror}/pegouts.json`, { cache: 'no-store' }); if (r.ok) pegoutsPaid = (await r.json()).paid ?? {}; } catch {} }
 
 /* ---------------- formatting ---------------- */
@@ -496,6 +499,7 @@ function renderHome() {
       </div>
       <div class="chips">
         <span class="chip">mirror <input id="mirror-in" class="mono" value="${esc(mirror)}" spellcheck="false" style="width:${Math.max(22, mirror.length)}ch;max-width:58vw;background:transparent;border:0;color:var(--ac);outline:none;font:inherit"></span>
+        ${checkpoints?.mismatch ? `<span class="chip" style="color:var(--bad)" title="the mirror's block ${checkpoints.mismatch.height} is ${esc(checkpoints.mismatch.hash.slice(0, 16))}… on the parent, ${esc(ex.blocks[checkpoints.mismatch.height]?.hash.slice(0, 16) ?? '?')}… here">⚠ history differs from the parent checkpoint at ${checkpoints.mismatch.height}</span>` : checkpoints?.anchored ? `<span class="chip" title="checkpoint ${esc(checkpoints.anchored.hash)} in parent tx ${esc(checkpoints.anchored.parentTxid)}, every ${checkpoints.every} blocks">⚓ anchored to ${esc(chain.parent)} block ${fmtNum(checkpoints.anchored.parentHeight)} up to height ${checkpoints.anchored.height}</span>` : checkpoints ? `<span class="chip dim">⚓ checkpoint pending on the parent</span>` : ''}
         ${announced ? `<span class="chip" title="${esc(mirrorVerdict?.note ?? '')}">${mirrorVerdict?.ok === false ? '⚠' : '✓'} signer announced <b>${announced.tip}</b>${chainId ? ' · found by chain id' : ''}${mirrorVerdict?.ok === false ? ` · <b>${esc(mirrorVerdict.note)}</b>` : ''}</span>` : ''}
         <button class="iconbtn" id="mirror-go" title="load this mirror" style="width:auto;height:auto;padding:.3rem .7rem;font:.75rem var(--mono);transform:none">load</button>
       </div>
@@ -591,6 +595,7 @@ function renderBlock(ref) {
           <span>${b.txs} tx${b.txs === 1 ? '' : 's'} · ${fmtNum(b.size)} B</span>
           <span>fees ${b.height === 0 ? '—' : fmtSats(b.fees)}</span>
           ${b.height === 0 ? '<span class="badge val" title="block 0 is built from the chain document and trusted as the root; every later block is validated against it">genesis · trusted root</span>' : b.verdict.ok ? '<span class="badge val">✓ all rules passed</span>' : `<span class="badge" style="color:var(--red);border-color:rgba(244,114,107,.4)">✗ ${esc(b.verdict.failed.join(', ') || 'mismatch')}</span>`}
+          ${(() => { const a = anchoredAt(b.height); return a ? `<span class="badge val" title="checkpoint at height ${a.height} (${esc(a.hash.slice(0, 16))}…) in ${esc(ex.chain.parent)} block ${fmtNum(a.parentHeight)}, tx ${esc(a.parentTxid.slice(0, 16))}…, ${a.confirmations} confirmations">⚓ anchored in ${esc(ex.chain.parent)} block ${fmtNum(a.parentHeight)}</span>` : checkpoints ? '<span class="badge dim" title="newer than the last confirmed checkpoint">not yet anchored</span>' : ''; })()}
         </div>
       </div>
     </section>
@@ -728,7 +733,7 @@ async function sync(silent = false) {
   try {
     await ex.refresh();
     rebuildIndexes();
-    lastSync = Math.floor(Date.now() / 1000); await loadPegouts();
+    lastSync = Math.floor(Date.now() / 1000); await loadPegouts(); await loadCheckpoints();
     setPill('ok', `validated ${ex.blocks.length} block${ex.blocks.length === 1 ? '' : 's'}`);
     route();
   } catch (e) {
@@ -761,7 +766,7 @@ setInterval(() => { if (ex && !document.hidden) sync(true); }, 60000);
     ex = new Explorer(mirror);
     await ex.open();
     rebuildIndexes();
-    lastSync = Math.floor(Date.now() / 1000); await loadPegouts();
+    lastSync = Math.floor(Date.now() / 1000); await loadPegouts(); await loadCheckpoints();
     setPill('ok', `validated ${ex.blocks.length} block${ex.blocks.length === 1 ? '' : 's'}`);
     route();
     watchTips();
