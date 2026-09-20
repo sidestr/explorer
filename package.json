@@ -5,5 +5,9 @@
   "description": "the sidestr explorer: reads a chain from a mirror and validates every block; the library (explorer.mjs) is what the wallet and the sidestr package build on",
   "repository": "github:sidestr/explorer",
   "license": "AGPL-3.0-or-later",
-  "exports": { ".": "./explorer.mjs", "./explorer.mjs": "./explorer.mjs" }
+  "exports": {
+    ".": "./explorer.mjs",
+    "./explorer.mjs": "./explorer.mjs",
+    "./package.json": "./package.json"
+  }
 }
