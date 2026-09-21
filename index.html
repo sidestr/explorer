@@ -487,7 +487,7 @@ function renderHome() {
   app.innerHTML = `<div class="view">
     <section class="hero">
       <div class="eyebrow">signed sidechain · level 1</div>
-      <h1>${esc(chain.name)} <span class="thin">/ ${esc(chain.parent)}</span></h1>
+      <h1>${esc(chain.name)} <span class="thin" title="${esc(chain.parent)}">/ ${esc(ex?.parent?.alias ?? chain.parent)}</span></h1>
       <p class="lede">${esc(chain.comment ?? '')}</p>
       <div class="chips">
         <span class="chip">chain <b>${esc(chain.id)}</b></span>
@@ -529,7 +529,7 @@ function renderHome() {
       <th class="n">height</th><th>hash</th><th class="hide-sm">age</th><th class="n">txs</th><th class="n hide-sm">size</th><th class="n hide-sm">fees</th><th class="n">coinbase</th><th></th>
     </tr></thead><tbody class="stagger">${rows}</tbody></table></div>
 
-    <div class="sect"><h2>pegs</h2><span class="count">${(chain.pegs ?? []).length} × locked on ${esc(chain.parent)}</span></div>
+    <div class="sect"><h2>pegs</h2><span class="count">${(chain.pegs ?? []).length} × locked on ${esc(ex?.parent?.alias ?? chain.parent)}</span></div>
     <div class="pegs stagger">${(chain.pegs ?? []).map((p) => `<div class="peg">
       <div class="amt">${fmtSats(p.amount)} <small>· ${esc(fmtCoin(p.amount, 2))}</small></div>
       <div class="ref"><b>parent outpoint</b> <span class="h">${shortHash(p.txid)}:${p.vout}</span></div>
