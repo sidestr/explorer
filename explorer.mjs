@@ -30,10 +30,11 @@ export const opReturnText = (spk) => { const m = /^6a(?:4c)?([0-9a-f]{2})([0-9a-
 // `opts` lets a test point at local checkouts: { cdn, sidestr, loadJson(url) }
 export async function loadEngine(chain, opts = {}) {
   const cdn = opts.cdn ?? CDN, side = opts.sidestr ?? SIDESTR, j = opts.loadJson ?? (async (u) => (await fetch(u)).json());
-  const [{ createKernel }, { knotsBlake2b }, { sidestrOverlay }, hash, nostr, { rulesFor }, secp] = await Promise.all([import(`${cdn}/codec/kernel.js`), import(`${cdn}/codec/overlays/knots-blake2b.js`), import(`${side}/overlay.mjs`), import(`${cdn}/codec/hash.js`), import(`${cdn}/codec/nostr.js`), import(`${side}/overlays/index.mjs`), import(`${cdn}/codec/secp256k1.js`)]);
+  const [{ createKernel }, { knotsBlake2b }, { sidestrOverlay }, hash, nostr, { rulesFor }, secp, { resolveParent }] = await Promise.all([import(`${cdn}/codec/kernel.js`), import(`${cdn}/codec/overlays/knots-blake2b.js`), import(`${side}/overlay.mjs`), import(`${cdn}/codec/hash.js`), import(`${cdn}/codec/nostr.js`), import(`${side}/overlays/index.mjs`), import(`${cdn}/codec/secp256k1.js`), import(`${side}/parents.mjs`)]);
   const jj = (p) => j(`${cdn}/${p}`); const rules = rulesFor(chain); // SPEC 12: the rules the document names, or a refusal
   const k = createKernel({ core: await jj('schema/core.jsonld'), proof: await jj('schema/proof.jsonld'), script: await jj('schema/script.jsonld'), chain: await jj('schema/chain.jsonld'), validate: await jj('schema/validate.jsonld'),
-    network: chain.id, overlays: [knotsBlake2b(await jj('schema/overlays/knots-blake2b.jsonld')), sidestrOverlay(chain, { hash, secp }), ...rules.overlays] }); // secp: a federated document's challenge is checked against its signers
+    // the header format follows the parent (SPEC 3.2): the Knots overlay carries the fork's header rules and is loaded only beside a BLAKE2b parent
+    network: chain.id, overlays: [...(resolveParent(chain.parent).family === 'blake2b' ? [knotsBlake2b(await jj('schema/overlays/knots-blake2b.jsonld'))] : []), sidestrOverlay(chain, { hash, secp }), ...rules.overlays] }); // secp: a federated document's challenge is checked against its signers
   if (rules.evm) await rules.evm.init(); // the evm rule fetches ethereumjs (from jsdelivr in a page) only on a chain that names it
   return { k, hash, nostr, rules };
 }
