@@ -42,7 +42,25 @@ export async function loadEngine(chain, opts = {}) {
 
 // the chain as a model: blocks in order, each validated, plus indexes for the page
 export class Explorer {
-  constructor(mirror, opts = {}) { this.opts = opts; this.mirror = mirror.replace(/\/$/, ''); this.blocks = []; this.txs = new Map(); this.utxo = new Map(); this.byScript = new Map(); this.headers = []; }
+  // opts.store: { get(key), set(key, value), delete(key) } (strings; sync or async), e.g. localStorage. With a store the
+  // validated state (coins, per-script history, the last 11 headers) is saved at the tip and a later open resumes from it,
+  // validating only the blocks since. The cache is dropped when the mirror's block at that height has another hash (a chain
+  // reset) or the chain names rules (their state is not cached yet). `fromCache` is the height resumed from, else null.
+  constructor(mirror, opts = {}) { this.opts = opts; this.mirror = mirror.replace(/\/$/, ''); this.blocks = []; this.txs = new Map(); this.utxo = new Map(); this.byScript = new Map(); this.headers = []; this.store = opts.store ?? null; this.fromCache = null; }
+  get cacheKey() { return `sidestr:state:${this.chain?.id}`; }
+  get cacheable() { return !!(this.store && this.chain && !(this.rules?.overlays?.length)); }
+  async clearCache() { if (this.store && this.chain) await this.store.delete?.(this.cacheKey); }
+  async #restore(index) {
+    let c; try { const raw = await this.store.get(this.cacheKey); c = raw ? JSON.parse(raw) : null; } catch { c = null; }
+    if (!c || c.v !== 1 || c.chain !== this.chain.id) return;
+    const e = index.blocks[c.height]; if (!e || e.hash !== c.hash) { await this.clearCache(); return; } // the chain is not the one the cache saw
+    this.utxo = new Map(c.utxo); this.byScript = new Map(c.byScript); for (const [h, hex] of c.headers) this.headers[h] = this.k.codec.decode('BlockHeader', hex);
+    this.blocks.length = c.height + 1; this.blocks[c.height] = { height: c.height, hash: c.hash, time: c.time, cached: true, verdict: { ok: true, cached: true } }; this.fromCache = c.height;
+  }
+  async #save() {
+    const tip = this.tip(); if (!tip) return; const headers = []; for (let h = Math.max(0, tip.height - 10); h <= tip.height; h++) if (this.headers[h]) headers.push([h, this.k.codec.encodeHex('BlockHeader', this.headers[h])]);
+    try { await this.store.set(this.cacheKey, JSON.stringify({ v: 1, chain: this.chain.id, height: tip.height, hash: tip.hash, time: tip.time, utxo: [...this.utxo], byScript: [...this.byScript], headers })); } catch {}
+  }
   async open() {
     this.chain = await (await fetch(`${this.mirror}/chain.json`, { cache: 'no-store' })).json();
     const { k, hash, nostr, rules, parent } = await loadEngine(this.chain, this.opts); this.k = k; this.hash = hash; this.nostr = nostr; this.rules = rules; this.parent = parent;
@@ -50,6 +68,7 @@ export class Explorer {
   }
   async refresh() {
     const index = await (await fetch(`${this.mirror}/blocks.json`, { cache: 'no-store' })).json();
+    if (this.blocks.length === 0 && this.cacheable) await this.#restore(index);
     const pending = index.blocks.filter((e) => e.height > this.blocks.length - 1);
     const fetched = new Map();
     for (let i = 0; i < pending.length; i += 16) await Promise.all(pending.slice(i, i + 16).map(async (e) => {
@@ -57,7 +76,7 @@ export class Explorer {
       fetched.set(e.height, new Uint8Array(await r.arrayBuffer()));
     }));
     for (const e of pending) await this.#apply(e, fetched.get(e.height));
-    this.index = index; return this;
+    this.index = index; if (pending.length && this.cacheable) await this.#save(); return this;
   }
   async #apply(entry, bytes) {
     const { k } = this; const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
@@ -66,7 +85,7 @@ export class Explorer {
     // the evm rule executes before the kernel's checks and leaves the verdict the sync rule reads (proposals/evm.md)
     if (this.rules?.evm) { if (h === 0) { this.rules.evm.roots.set(0, this.rules.evm.roots.get(-1)); this.rules.evm.blocks.set(0, { hashes: [], root: '0x' + this.rules.evm.roots.get(-1) }); } else { const v = await this.rules.evm.prepare(block, h, k.codec); if (!v.ok) verdict.evm = v.error; } }
     if (h > 0) {
-      const [hv] = k.headers.validateChain([block.header], { startHeight: h, prevContext: this.headers.slice(0, h), now: Math.floor(Date.now() / 1000) + 7200 });
+      const [hv] = k.headers.validateChain([block.header], { startHeight: h, prevContext: this.headers.slice(Math.max(0, h - 11), h).filter(Boolean), now: Math.floor(Date.now() / 1000) + 7200 });
       const s = k.blocks.validateBlockStructure(block); const c = k.blocks.validateBlockContext(block, { height: h, utxo: this.utxo, mtp: k.headers.medianTimePast(this.headers.slice(Math.max(0, h - 11), h)) });
       for (const r of [...hv.results, ...s.results, ...c.results]) { if (r.ok === false) verdict.failed.push(r.rule); if (r.ok === null) verdict.skipped.push(r.rule); }
       verdict.ok = verdict.failed.length === 0 && hash === entry.hash && block.header.prevBlockHash === this.blocks[h - 1].hash;
