@@ -9,5 +9,8 @@
     ".": "./explorer.mjs",
     "./explorer.mjs": "./explorer.mjs",
     "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
