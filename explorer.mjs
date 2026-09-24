@@ -66,7 +66,9 @@ export class Explorer {
     const { k, hash, nostr, rules, parent } = await loadEngine(this.chain, this.opts); this.k = k; this.hash = hash; this.nostr = nostr; this.rules = rules; this.parent = parent;
     return this.refresh();
   }
-  async refresh() {
+  // one refresh at a time: a second caller waits for the first and gets its result, so a block is never applied twice
+  refresh() { if (!this._refreshing) this._refreshing = this.#refresh().finally(() => { this._refreshing = null; }); return this._refreshing; }
+  async #refresh() {
     const index = await (await fetch(`${this.mirror}/blocks.json`, { cache: 'no-store' })).json();
     if (this.blocks.length === 0 && this.cacheable) await this.#restore(index);
     const pending = index.blocks.filter((e) => e.height > this.blocks.length - 1);

@@ -25,5 +25,12 @@ t('a cache can be written short of the tip', e.ex.tip().height === short && JSON
 const f = await open({ store });
 t('an open resumes from the older cache and validates the blocks since, with verdicts', f.ex.fromCache === short && f.ex.tip().height === tipA.height && f.ex.blocks.slice(short + 1).every((b) => b && b.verdict.ok && !b.verdict.cached));
 t('the state after catching up equals a full validation', f.ex.supply() === a.ex.supply() && f.ex.utxo.size === a.ex.utxo.size && f.ex.tip().hash === tipA.hash);
+// two refreshes at once (a tip announcement and a 'mined?' poll both call it) apply each block once:
+// open with the index truncated 4 blocks short, restore the real index, then refresh three times concurrently
+globalThis.fetch = async (u, o) => { const r = await realFetch(u, o); if (!String(u).endsWith('/blocks.json')) return r; const j = await r.json(); return new Response(JSON.stringify({ ...j, to: tipA.height - 4, blocks: j.blocks.filter((b) => b.height <= tipA.height - 4) }), { headers: { 'content-type': 'application/json' } }); };
+const g = new Explorer(mirror, { ...opts }); await g.open(); globalThis.fetch = realFetch;
+await Promise.all([g.refresh(), g.refresh(), g.refresh()]);
+const count = (ex) => [...ex.byScript.values()].reduce((n, a) => n + a.outputs.length + (a.spends?.length ?? 0), 0);
+t('concurrent refreshes apply the last blocks once (per-script history equals a full validation)', g.tip().height === a.ex.tip().height && count(g) === count(a.ex) && g.supply() === a.ex.supply());
 const d = await open({}); t('without a store nothing is cached and nothing changes', d.ex.fromCache === null && d.ex.supply() === a.ex.supply());
 console.log(`${ok} passed, ${bad} failed (full open ${a.ms} ms, resumed ${b.ms} ms)`); process.exit(bad ? 1 : 0);
