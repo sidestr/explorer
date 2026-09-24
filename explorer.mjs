@@ -41,6 +41,8 @@ export async function loadEngine(chain, opts = {}) {
 }
 
 // the chain as a model: blocks in order, each validated, plus indexes for the page
+// bumped when a saved state could be wrong: 2 after the concurrent-refresh fix (a v1 cache may hold duplicated history)
+export const CACHE_VERSION = 2;
 export class Explorer {
   // opts.store: { get(key), set(key, value), delete(key) } (strings; sync or async), e.g. localStorage. With a store the
   // validated state (coins, per-script history, the last 11 headers) is saved at the tip and a later open resumes from it,
@@ -52,14 +54,14 @@ export class Explorer {
   async clearCache() { if (this.store && this.chain) await this.store.delete?.(this.cacheKey); }
   async #restore(index) {
     let c; try { const raw = await this.store.get(this.cacheKey); c = raw ? JSON.parse(raw) : null; } catch { c = null; }
-    if (!c || c.v !== 1 || c.chain !== this.chain.id) return;
+    if (!c || c.v !== CACHE_VERSION || c.chain !== this.chain.id) { if (c) await this.clearCache(); return; } // an older cache format is dropped, not read
     const e = index.blocks[c.height]; if (!e || e.hash !== c.hash) { await this.clearCache(); return; } // the chain is not the one the cache saw
     this.utxo = new Map(c.utxo); this.byScript = new Map(c.byScript); for (const [h, hex] of c.headers) this.headers[h] = this.k.codec.decode('BlockHeader', hex);
     this.blocks.length = c.height + 1; this.blocks[c.height] = { height: c.height, hash: c.hash, time: c.time, cached: true, verdict: { ok: true, cached: true } }; this.fromCache = c.height;
   }
   async #save() {
     const tip = this.tip(); if (!tip) return; const headers = []; for (let h = Math.max(0, tip.height - 10); h <= tip.height; h++) if (this.headers[h]) headers.push([h, this.k.codec.encodeHex('BlockHeader', this.headers[h])]);
-    try { await this.store.set(this.cacheKey, JSON.stringify({ v: 1, chain: this.chain.id, height: tip.height, hash: tip.hash, time: tip.time, utxo: [...this.utxo], byScript: [...this.byScript], headers })); } catch {}
+    try { await this.store.set(this.cacheKey, JSON.stringify({ v: CACHE_VERSION, chain: this.chain.id, height: tip.height, hash: tip.hash, time: tip.time, utxo: [...this.utxo], byScript: [...this.byScript], headers })); } catch {}
   }
   async open() {
     this.chain = await (await fetch(`${this.mirror}/chain.json`, { cache: 'no-store' })).json();
