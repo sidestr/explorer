@@ -1,6 +1,6 @@
 {
   "name": "@sidestr/explorer",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "the sidestr explorer: reads a chain from a mirror and validates every block; the library (explorer.mjs) is what the wallet and the sidestr package build on",
   "repository": "github:sidestr/explorer",
