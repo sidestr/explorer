@@ -2,7 +2,7 @@
 // every block with the engine in memory: headers, structure including the block signature, and
 // context against a UTXO set it builds itself. No key, no submit, no DOM: index.html renders this.
 export const CDN = 'https://cdn.jsdelivr.net/gh/bitcoin-desktop/schema@v0.0.27';
-export const SIDESTR = 'https://cdn.jsdelivr.net/gh/sidestr/spec@722ad42d3271efccfdfaf57c3c6943f58fc168f8/siding/lib';
+export const SIDESTR = 'https://cdn.jsdelivr.net/gh/sidestr/spec@e6e04d7d023f99888d37b402dd2ffc7042f9d2ce/siding/lib';
 
 const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
 const polymod = (values) => { const G = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]; let chk = 1; for (const v of values) { const top = chk >>> 25; chk = ((chk & 0x1ffffff) << 5) ^ v; for (let i = 0; i < 5; i++) if ((top >>> i) & 1) chk ^= G[i]; } return chk >>> 0; };
