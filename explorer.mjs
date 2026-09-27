@@ -2,7 +2,7 @@
 // every block with the engine in memory: headers, structure including the block signature, and
 // context against a UTXO set it builds itself. No key, no submit, no DOM: index.html renders this.
 export const CDN = 'https://cdn.jsdelivr.net/gh/bitcoin-desktop/schema@v0.0.27';
-export const SIDESTR = 'https://cdn.jsdelivr.net/gh/sidestr/spec@e6e04d7d023f99888d37b402dd2ffc7042f9d2ce/siding/lib';
+export const SIDESTR = 'https://cdn.jsdelivr.net/gh/sidestr/spec@c4dc6b9a6c6ca93ca20c407af69329a0483490ab/siding/lib';
 
 const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
 const polymod = (values) => { const G = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]; let chk = 1; for (const v of values) { const top = chk >>> 25; chk = ((chk & 0x1ffffff) << 5) ^ v; for (let i = 0; i < 5; i++) if ((top >>> i) & 1) chk ^= G[i]; } return chk >>> 0; };
@@ -51,21 +51,23 @@ export class Explorer {
   // reset) or the chain names rules (their state is not cached yet). `fromCache` is the height resumed from, else null.
   constructor(mirror, opts = {}) { this.opts = opts; this.mirror = mirror.replace(/\/$/, ''); this.blocks = []; this.txs = new Map(); this.utxo = new Map(); this.byScript = new Map(); this.headers = []; this.store = opts.store ?? null; this.fromCache = null; this.indexEtag = null; this.stats = { fetches: 0 }; }
   get cacheKey() { return `sidestr:state:${this.chain?.id}`; }
-  // the evm rule's state is an ethereumjs trie with no snapshot yet, so a chain naming it validates from genesis every open
-  get cacheable() { return !!(this.store && this.chain && !this.rules?.evm); }
+  get cacheable() { return !!(this.store && this.chain); }
   // the assets and pool rules keep plain maps beside the UTXO set; they are saved with it and put back in place (the maps
   // are shared between the two overlays and the page, so they are refilled, never replaced)
-  #ruleState() {
-    const { assets, pool } = this.rules ?? {}; if (!assets) return null;
-    const st = { carried: [...assets.carried].map(([k, m]) => [k, [...m]]), issued: [...assets.issued] };
+  // the evm rule's state is an ethereumjs trie; its overlay gives a JSON-safe snapshot and rebuilds the VM from one
+  async #ruleState() {
+    const { assets, pool, evm } = this.rules ?? {}; if (!assets && !evm) return null; const st = {};
+    if (assets) Object.assign(st, { carried: [...assets.carried].map(([k, m]) => [k, [...m]]), issued: [...assets.issued] });
     if (pool) Object.assign(st, { pools: [...pool.pools], byOutpoint: [...pool.byOutpoint], journal: [...pool.journal] });
+    if (evm) st.evm = await evm.snapshot();
     return st;
   }
-  #restoreRules(st) {
-    const { assets, pool } = this.rules ?? {}; if (!assets) return true; if (!st) return false;
+  async #restoreRules(st, height) {
+    const { assets, pool, evm } = this.rules ?? {}; if (!assets && !evm) return true; if (!st) return false;
     const fill = (map, entries) => { map.clear(); for (const [k, v] of entries) map.set(k, v); };
-    fill(assets.carried, st.carried.map(([k, m]) => [k, new Map(m)])); fill(assets.issued, st.issued);
+    if (assets) { if (!st.carried) return false; fill(assets.carried, st.carried.map(([k, m]) => [k, new Map(m)])); fill(assets.issued, st.issued); }
     if (pool) { if (!st.pools) return false; fill(pool.pools, st.pools); fill(pool.byOutpoint, st.byOutpoint); fill(pool.journal, st.journal); }
+    if (evm) { if (!st.evm) return false; try { await evm.restore(st.evm, height); } catch { return false; } }
     return true;
   }
   async clearCache() { if (this.store && this.chain) await this.store.delete?.(this.cacheKey); }
@@ -73,13 +75,13 @@ export class Explorer {
     let c; try { const raw = await this.store.get(this.cacheKey); c = raw ? JSON.parse(raw) : null; } catch { c = null; }
     if (!c || c.v !== CACHE_VERSION || c.chain !== this.chain.id) { if (c) await this.clearCache(); return; } // an older cache format is dropped, not read
     const e = index.blocks[c.height]; if (!e || e.hash !== c.hash) { await this.clearCache(); return; } // the chain is not the one the cache saw
-    if (!this.#restoreRules(c.rules)) { await this.clearCache(); return; } // a cache without the rules' state is not resumed
+    if (!(await this.#restoreRules(c.rules, c.height))) { await this.clearCache(); return; } // a cache without the rules' state is not resumed
     this.utxo = new Map(c.utxo); this.byScript = new Map(c.byScript); for (const [h, hex] of c.headers) this.headers[h] = this.k.codec.decode('BlockHeader', hex);
     this.blocks.length = c.height + 1; this.blocks[c.height] = { height: c.height, hash: c.hash, time: c.time, cached: true, verdict: { ok: true, cached: true } }; this.fromCache = c.height;
   }
   async #save() {
     const tip = this.tip(); if (!tip) return; const headers = []; for (let h = Math.max(0, tip.height - 10); h <= tip.height; h++) if (this.headers[h]) headers.push([h, this.k.codec.encodeHex('BlockHeader', this.headers[h])]);
-    try { await this.store.set(this.cacheKey, JSON.stringify({ v: CACHE_VERSION, chain: this.chain.id, height: tip.height, hash: tip.hash, time: tip.time, utxo: [...this.utxo], byScript: [...this.byScript], headers, rules: this.#ruleState() })); } catch {}
+    try { await this.store.set(this.cacheKey, JSON.stringify({ v: CACHE_VERSION, chain: this.chain.id, height: tip.height, hash: tip.hash, time: tip.time, utxo: [...this.utxo], byScript: [...this.byScript], headers, rules: await this.#ruleState() })); } catch {}
   }
   async open() {
     this.chain = await (await fetch(`${this.mirror}/chain.json`, { cache: 'no-store' })).json();
