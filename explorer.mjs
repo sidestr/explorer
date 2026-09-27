@@ -43,12 +43,13 @@ export async function loadEngine(chain, opts = {}) {
 // the chain as a model: blocks in order, each validated, plus indexes for the page
 // bumped when a saved state could be wrong: 2 after the concurrent-refresh fix (a v1 cache may hold duplicated history)
 export const CACHE_VERSION = 2;
+export const RANGE_BYTES = 4 * 1024 * 1024; // the most one Range request asks for
 export class Explorer {
   // opts.store: { get(key), set(key, value), delete(key) } (strings; sync or async), e.g. localStorage. With a store the
   // validated state (coins, per-script history, the last 11 headers) is saved at the tip and a later open resumes from it,
   // validating only the blocks since. The cache is dropped when the mirror's block at that height has another hash (a chain
   // reset) or the chain names rules (their state is not cached yet). `fromCache` is the height resumed from, else null.
-  constructor(mirror, opts = {}) { this.opts = opts; this.mirror = mirror.replace(/\/$/, ''); this.blocks = []; this.txs = new Map(); this.utxo = new Map(); this.byScript = new Map(); this.headers = []; this.store = opts.store ?? null; this.fromCache = null; }
+  constructor(mirror, opts = {}) { this.opts = opts; this.mirror = mirror.replace(/\/$/, ''); this.blocks = []; this.txs = new Map(); this.utxo = new Map(); this.byScript = new Map(); this.headers = []; this.store = opts.store ?? null; this.fromCache = null; this.indexEtag = null; this.stats = { fetches: 0 }; }
   get cacheKey() { return `sidestr:state:${this.chain?.id}`; }
   get cacheable() { return !!(this.store && this.chain && !(this.rules?.overlays?.length)); }
   async clearCache() { if (this.store && this.chain) await this.store.delete?.(this.cacheKey); }
@@ -71,16 +72,32 @@ export class Explorer {
   // one refresh at a time: a second caller waits for the first and gets its result, so a block is never applied twice
   refresh() { if (!this._refreshing) this._refreshing = this.#refresh().finally(() => { this._refreshing = null; }); return this._refreshing; }
   async #refresh() {
-    const index = await (await fetch(`${this.mirror}/blocks.json`, { cache: 'no-store' })).json();
+    // an unchanged index costs a 304 when the mirror gives an ETag (a producer does; a static host usually does)
+    const ir = await fetch(`${this.mirror}/blocks.json`, { cache: 'no-store', headers: this.indexEtag ? { 'if-none-match': this.indexEtag } : {} }); this.stats.fetches++;
+    if (ir.status === 304) return this;
+    const index = await ir.json(); this.indexEtag = ir.headers.get('etag');
     if (this.blocks.length === 0 && this.cacheable) await this.#restore(index);
     const pending = index.blocks.filter((e) => e.height > this.blocks.length - 1);
-    const fetched = new Map();
-    for (let i = 0; i < pending.length; i += 16) await Promise.all(pending.slice(i, i + 16).map(async (e) => {
-      const r = await fetch(`${this.mirror}/blocks.dat`, { headers: { range: `bytes=${e.offset + 8}-${e.offset + 8 + e.size - 1}` }, cache: 'no-store' });
-      fetched.set(e.height, new Uint8Array(await r.arrayBuffer()));
-    }));
+    const fetched = await this.#fetchBlocks(pending);
     for (const e of pending) await this.#apply(e, fetched.get(e.height));
     this.index = index; if (pending.length && this.cacheable) await this.#save(); return this;
+  }
+  // the pending blocks in one Range request per contiguous run of at most RANGE_BYTES (blocks.dat is append-only, so a
+  // sync is normally one request); a mirror that answers 200 with the whole file is sliced by absolute offset instead
+  async #fetchBlocks(pending) {
+    const fetched = new Map(); if (!pending.length) return fetched;
+    const runs = []; let run = [];
+    for (const e of pending) { const prev = run.at(-1); if (prev && (e.offset !== prev.offset + 8 + prev.size || e.offset + 8 + e.size - (run[0].offset + 8) > RANGE_BYTES)) { runs.push(run); run = []; } run.push(e); }
+    runs.push(run);
+    for (const r of runs) {
+      const start = r[0].offset + 8, end = r.at(-1).offset + 8 + r.at(-1).size - 1;
+      const res = await fetch(`${this.mirror}/blocks.dat`, { headers: { range: `bytes=${start}-${end}` }, cache: 'no-store' }); this.stats.fetches++;
+      if (res.status !== 206 && res.status !== 200) throw new Error(`blocks.dat: ${res.status}`);
+      const buf = new Uint8Array(await res.arrayBuffer()); const base = res.status === 206 ? start : 0;
+      if (buf.length < end + 1 - base) throw new Error(`blocks.dat: short read (${buf.length} of ${end + 1 - base} bytes)`);
+      for (const e of r) fetched.set(e.height, buf.subarray(e.offset + 8 - base, e.offset + 8 + e.size - base));
+    }
+    return fetched;
   }
   async #apply(entry, bytes) {
     const { k } = this; const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
