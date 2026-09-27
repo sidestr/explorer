@@ -2,7 +2,7 @@
 // every block with the engine in memory: headers, structure including the block signature, and
 // context against a UTXO set it builds itself. No key, no submit, no DOM: index.html renders this.
 export const CDN = 'https://cdn.jsdelivr.net/gh/bitcoin-desktop/schema@v0.0.27';
-export const SIDESTR = 'https://cdn.jsdelivr.net/gh/sidestr/spec@c4dc6b9a6c6ca93ca20c407af69329a0483490ab/siding/lib';
+export const SIDESTR = 'https://cdn.jsdelivr.net/gh/sidestr/spec@1938459c359d95724bf6cf90427b8006ea494813/siding/lib';
 
 const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
 const polymod = (values) => { const G = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]; let chk = 1; for (const v of values) { const top = chk >>> 25; chk = ((chk & 0x1ffffff) << 5) ^ v; for (let i = 0; i < 5; i++) if ((top >>> i) & 1) chk ^= G[i]; } return chk >>> 0; };
@@ -31,7 +31,7 @@ export const opReturnText = (spk) => { const m = /^6a(?:4c)?([0-9a-f]{2})([0-9a-
 export async function loadEngine(chain, opts = {}) {
   const cdn = opts.cdn ?? CDN, side = opts.sidestr ?? SIDESTR, j = opts.loadJson ?? (async (u) => (await fetch(u)).json());
   const [{ createKernel }, { resolveParent }, { sidestrOverlay }, hash, nostr, { rulesFor }, secp] = await Promise.all([import(`${cdn}/codec/kernel.js`), import(`${side}/parents.mjs`), import(`${side}/overlay.mjs`), import(`${cdn}/codec/hash.js`), import(`${cdn}/codec/nostr.js`), import(`${side}/overlays/index.mjs`), import(`${cdn}/codec/secp256k1.js`)]);
-  const jj = (p) => j(`${cdn}/${p}`); const rules = rulesFor(chain); // SPEC 12: the rules the document names, or a refusal
+  const jj = (p) => j(`${cdn}/${p}`); const rules = rulesFor(chain, { hash }); // SPEC 12: the rules the document names, or a refusal (the markets rule needs the hash module)
   const parent = resolveParent(chain.parent); const overlays = [sidestrOverlay(chain, { hash, secp }), ...rules.overlays]; // SPEC 3.2: the header format follows the parent
   if (parent.family === 'blake2b') { const { knotsBlake2b } = await import(`${cdn}/codec/overlays/knots-blake2b.js`); overlays.unshift(knotsBlake2b(await jj('schema/overlays/knots-blake2b.jsonld'))); }
   const k = createKernel({ core: await jj('schema/core.jsonld'), proof: await jj('schema/proof.jsonld'), script: await jj('schema/script.jsonld'), chain: await jj('schema/chain.jsonld'), validate: await jj('schema/validate.jsonld'),
@@ -56,17 +56,19 @@ export class Explorer {
   // are shared between the two overlays and the page, so they are refilled, never replaced)
   // the evm rule's state is an ethereumjs trie; its overlay gives a JSON-safe snapshot and rebuilds the VM from one
   async #ruleState() {
-    const { assets, pool, evm } = this.rules ?? {}; if (!assets && !evm) return null; const st = {};
+    const { assets, pool, evm, markets } = this.rules ?? {}; if (!assets && !evm) return null; const st = {};
     if (assets) Object.assign(st, { carried: [...assets.carried].map(([k, m]) => [k, [...m]]), issued: [...assets.issued] });
     if (pool) Object.assign(st, { pools: [...pool.pools], byOutpoint: [...pool.byOutpoint], journal: [...pool.journal] });
+    if (markets) Object.assign(st, { markets: [...markets.markets], marketsBy: [...markets.byOutpoint], marketsJournal: [...markets.journal] });
     if (evm) st.evm = await evm.snapshot();
     return st;
   }
   async #restoreRules(st, height) {
-    const { assets, pool, evm } = this.rules ?? {}; if (!assets && !evm) return true; if (!st) return false;
+    const { assets, pool, evm, markets } = this.rules ?? {}; if (!assets && !evm) return true; if (!st) return false;
     const fill = (map, entries) => { map.clear(); for (const [k, v] of entries) map.set(k, v); };
     if (assets) { if (!st.carried) return false; fill(assets.carried, st.carried.map(([k, m]) => [k, new Map(m)])); fill(assets.issued, st.issued); }
     if (pool) { if (!st.pools) return false; fill(pool.pools, st.pools); fill(pool.byOutpoint, st.byOutpoint); fill(pool.journal, st.journal); }
+    if (markets) { if (!st.markets) return false; fill(markets.markets, st.markets); fill(markets.byOutpoint, st.marketsBy); fill(markets.journal, st.marketsJournal); }
     if (evm) { if (!st.evm) return false; try { await evm.restore(st.evm, height); } catch { return false; } }
     return true;
   }
