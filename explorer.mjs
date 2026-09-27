@@ -42,7 +42,7 @@ export async function loadEngine(chain, opts = {}) {
 
 // the chain as a model: blocks in order, each validated, plus indexes for the page
 // bumped when a saved state could be wrong: 2 after the concurrent-refresh fix (a v1 cache may hold duplicated history)
-export const CACHE_VERSION = 3; // 3: the assets and pool rules' state is cached too
+export const CACHE_VERSION = 4; // 3: the assets and pool rules' state is cached too; 4: every block's hash and time, so history keeps its dates after a resume
 export const RANGE_BYTES = 4 * 1024 * 1024; // the most one Range request asks for
 export class Explorer {
   // opts.store: { get(key), set(key, value), delete(key) } (strings; sync or async), e.g. localStorage. With a store the
@@ -77,11 +77,12 @@ export class Explorer {
     const e = index.blocks[c.height]; if (!e || e.hash !== c.hash) { await this.clearCache(); return; } // the chain is not the one the cache saw
     if (!(await this.#restoreRules(c.rules, c.height))) { await this.clearCache(); return; } // a cache without the rules' state is not resumed
     this.utxo = new Map(c.utxo); this.byScript = new Map(c.byScript); for (const [h, hex] of c.headers) this.headers[h] = this.k.codec.decode('BlockHeader', hex);
-    this.blocks.length = c.height + 1; this.blocks[c.height] = { height: c.height, hash: c.hash, time: c.time, cached: true, verdict: { ok: true, cached: true } }; this.fromCache = c.height;
+    // a record per cached height (hash from the mirror's index, time from the cache), so a page can date history and find a block by hash
+    this.blocks.length = 0; for (let h = 0; h <= c.height; h++) this.blocks[h] = { height: h, hash: index.blocks[h]?.hash ?? null, time: c.times?.[h] ?? null, cached: true, verdict: { ok: true, cached: true } }; this.fromCache = c.height;
   }
   async #save() {
     const tip = this.tip(); if (!tip) return; const headers = []; for (let h = Math.max(0, tip.height - 10); h <= tip.height; h++) if (this.headers[h]) headers.push([h, this.k.codec.encodeHex('BlockHeader', this.headers[h])]);
-    try { await this.store.set(this.cacheKey, JSON.stringify({ v: CACHE_VERSION, chain: this.chain.id, height: tip.height, hash: tip.hash, time: tip.time, utxo: [...this.utxo], byScript: [...this.byScript], headers, rules: await this.#ruleState() })); } catch {}
+    try { await this.store.set(this.cacheKey, JSON.stringify({ v: CACHE_VERSION, chain: this.chain.id, height: tip.height, hash: tip.hash, time: tip.time, utxo: [...this.utxo], byScript: [...this.byScript], headers, times: this.blocks.map((b) => b?.time ?? null), rules: await this.#ruleState() })); } catch {}
   }
   async open() {
     this.chain = await (await fetch(`${this.mirror}/chain.json`, { cache: 'no-store' })).json();

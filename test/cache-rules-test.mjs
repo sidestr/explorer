@@ -13,6 +13,7 @@ t(`the chain names the rules under test (${(a.ex.chain.rules ?? []).join(', ')})
 t('a chain with rules is cacheable now, and the first open wrote the cache', a.ex.cacheable && a.ex.fromCache === null && mem.has(a.ex.cacheKey));
 const saved = JSON.parse(mem.get(a.ex.cacheKey)); t('the cache carries the rules\' state', saved.rules && saved.rules.carried.length === a.ex.rules.assets.carried.size && saved.rules.pools.length === a.ex.rules.pool.pools.size && saved.rules.journal.length === a.ex.rules.pool.journal.size);
 const b = await open({ store });
+t('every cached height has its hash and time (history keeps its dates)', b.ex.blocks.every((x) => x && x.hash && x.time) && b.ex.blocks[Math.floor(tip.height / 2)].time === a.ex.blocks[Math.floor(tip.height / 2)].time && b.ex.block(a.ex.blocks[3].hash)?.height === 3);
 t('the second open resumed from the cached tip', b.ex.fromCache === tip.height);
 t('same coins, carried assets, issued assets, pools, pool coins and journal', dump(b.ex) === dump(a.ex));
 t(`the resumed open is faster (${a.ms} ms full, ${b.ms} ms resumed)`, b.ms < a.ms / 4);
