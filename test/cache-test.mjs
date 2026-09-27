@@ -1,6 +1,6 @@
 // The validated-state cache against a live mirror (default: the local melchain producer):
 //   node test/cache-test.mjs [mirror]
-import { Explorer } from '../explorer.mjs';
+import { Explorer, CACHE_VERSION } from '../explorer.mjs';
 const H = process.env.HOME, mirror = process.argv[2] ?? 'http://127.0.0.1:3451';
 const opts = { cdn: process.env.SCHEMA ?? `${H}/bitcoin-desktop/schema`, sidestr: `${H}/remote/github.com/sidestr/spec/siding/lib`, loadJson: async (u) => JSON.parse(await (await import('node:fs/promises')).readFile(u, 'utf8')) };
 let ok = 0, bad = 0; const t = (name, cond) => { console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${name}`); cond ? ok++ : bad++; };
@@ -9,8 +9,8 @@ const open = async (o) => { const ex = new Explorer(mirror, { ...opts, ...o }); 
 const a = await open({ store }); const tipA = a.ex.tip();
 t('first open validates from genesis and writes the cache', a.ex.fromCache === null && mem.has(`sidestr:state:${a.ex.chain.id}`));
 const saved = JSON.parse(mem.get(a.ex.cacheKey)); t('the cache is at the tip with 11 headers', saved.height === tipA.height && saved.hash === tipA.hash && saved.headers.length === Math.min(11, tipA.height + 1));
-t('the cache carries the current format version', saved.v === 2);
-mem.set(a.ex.cacheKey, JSON.stringify({ ...saved, v: 1 })); const old1 = await open({ store }); t('a cache in an older format is dropped and the chain replays from genesis', old1.ex.fromCache === null && JSON.parse(mem.get(a.ex.cacheKey)).v === 2);
+t('the cache carries the current format version', saved.v === CACHE_VERSION);
+mem.set(a.ex.cacheKey, JSON.stringify({ ...saved, v: CACHE_VERSION - 1 })); const old1 = await open({ store }); t('a cache in an older format is dropped and the chain replays from genesis', old1.ex.fromCache === null && JSON.parse(mem.get(a.ex.cacheKey)).v === CACHE_VERSION);
 const b = await open({ store });
 t('second open resumes from the cached tip', b.ex.fromCache === tipA.height && b.ex.tip().height >= tipA.height);
 t('same coins, same supply, same per-script history', b.ex.supply() === a.ex.supply() && b.ex.utxo.size === a.ex.utxo.size && [...a.ex.utxo.keys()].every((k) => b.ex.utxo.has(k)) && b.ex.byScript.size === a.ex.byScript.size);

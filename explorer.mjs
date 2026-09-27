@@ -42,7 +42,7 @@ export async function loadEngine(chain, opts = {}) {
 
 // the chain as a model: blocks in order, each validated, plus indexes for the page
 // bumped when a saved state could be wrong: 2 after the concurrent-refresh fix (a v1 cache may hold duplicated history)
-export const CACHE_VERSION = 2;
+export const CACHE_VERSION = 3; // 3: the assets and pool rules' state is cached too
 export const RANGE_BYTES = 4 * 1024 * 1024; // the most one Range request asks for
 export class Explorer {
   // opts.store: { get(key), set(key, value), delete(key) } (strings; sync or async), e.g. localStorage. With a store the
@@ -51,18 +51,35 @@ export class Explorer {
   // reset) or the chain names rules (their state is not cached yet). `fromCache` is the height resumed from, else null.
   constructor(mirror, opts = {}) { this.opts = opts; this.mirror = mirror.replace(/\/$/, ''); this.blocks = []; this.txs = new Map(); this.utxo = new Map(); this.byScript = new Map(); this.headers = []; this.store = opts.store ?? null; this.fromCache = null; this.indexEtag = null; this.stats = { fetches: 0 }; }
   get cacheKey() { return `sidestr:state:${this.chain?.id}`; }
-  get cacheable() { return !!(this.store && this.chain && !(this.rules?.overlays?.length)); }
+  // the evm rule's state is an ethereumjs trie with no snapshot yet, so a chain naming it validates from genesis every open
+  get cacheable() { return !!(this.store && this.chain && !this.rules?.evm); }
+  // the assets and pool rules keep plain maps beside the UTXO set; they are saved with it and put back in place (the maps
+  // are shared between the two overlays and the page, so they are refilled, never replaced)
+  #ruleState() {
+    const { assets, pool } = this.rules ?? {}; if (!assets) return null;
+    const st = { carried: [...assets.carried].map(([k, m]) => [k, [...m]]), issued: [...assets.issued] };
+    if (pool) Object.assign(st, { pools: [...pool.pools], byOutpoint: [...pool.byOutpoint], journal: [...pool.journal] });
+    return st;
+  }
+  #restoreRules(st) {
+    const { assets, pool } = this.rules ?? {}; if (!assets) return true; if (!st) return false;
+    const fill = (map, entries) => { map.clear(); for (const [k, v] of entries) map.set(k, v); };
+    fill(assets.carried, st.carried.map(([k, m]) => [k, new Map(m)])); fill(assets.issued, st.issued);
+    if (pool) { if (!st.pools) return false; fill(pool.pools, st.pools); fill(pool.byOutpoint, st.byOutpoint); fill(pool.journal, st.journal); }
+    return true;
+  }
   async clearCache() { if (this.store && this.chain) await this.store.delete?.(this.cacheKey); }
   async #restore(index) {
     let c; try { const raw = await this.store.get(this.cacheKey); c = raw ? JSON.parse(raw) : null; } catch { c = null; }
     if (!c || c.v !== CACHE_VERSION || c.chain !== this.chain.id) { if (c) await this.clearCache(); return; } // an older cache format is dropped, not read
     const e = index.blocks[c.height]; if (!e || e.hash !== c.hash) { await this.clearCache(); return; } // the chain is not the one the cache saw
+    if (!this.#restoreRules(c.rules)) { await this.clearCache(); return; } // a cache without the rules' state is not resumed
     this.utxo = new Map(c.utxo); this.byScript = new Map(c.byScript); for (const [h, hex] of c.headers) this.headers[h] = this.k.codec.decode('BlockHeader', hex);
     this.blocks.length = c.height + 1; this.blocks[c.height] = { height: c.height, hash: c.hash, time: c.time, cached: true, verdict: { ok: true, cached: true } }; this.fromCache = c.height;
   }
   async #save() {
     const tip = this.tip(); if (!tip) return; const headers = []; for (let h = Math.max(0, tip.height - 10); h <= tip.height; h++) if (this.headers[h]) headers.push([h, this.k.codec.encodeHex('BlockHeader', this.headers[h])]);
-    try { await this.store.set(this.cacheKey, JSON.stringify({ v: CACHE_VERSION, chain: this.chain.id, height: tip.height, hash: tip.hash, time: tip.time, utxo: [...this.utxo], byScript: [...this.byScript], headers })); } catch {}
+    try { await this.store.set(this.cacheKey, JSON.stringify({ v: CACHE_VERSION, chain: this.chain.id, height: tip.height, hash: tip.hash, time: tip.time, utxo: [...this.utxo], byScript: [...this.byScript], headers, rules: this.#ruleState() })); } catch {}
   }
   async open() {
     this.chain = await (await fetch(`${this.mirror}/chain.json`, { cache: 'no-store' })).json();
